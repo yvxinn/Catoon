@@ -1,0 +1,139 @@
+# Catoon 默认配置文件
+# 语义感知可控卡通化框架
+
+global:
+  max_image_size: 1024
+  device: "auto"  # auto | cuda | cpu
+  cache_enabled: true
+
+# 语义分割配置
+segmentation:
+  model: "segformer"
+  backbone: "mit-b2"
+  weights: "nvidia/segformer-b2-finetuned-ade-512-512"
+  input_size: 512
+  use_face_detector: true
+  use_boundary_refinement: false
+
+# 风格化器配置
+stylizers:
+  # GAN 风格化候选
+  gan:
+    - name: "Hayao"
+      model: "AnimeGANv2"
+      weights: "weights/animegan/Hayao-60.onnx"
+    - name: "Shinkai"
+      model: "AnimeGANv2"
+      weights: "weights/animegan/Shinkai-53.onnx"
+    - name: "Paprika"
+      model: "AnimeGANv2"
+      weights: "weights/animegan/Paprika-54.onnx"
+  
+  # 传统风格化配置
+  traditional:
+    smooth_method: "bilateral"  # bilateral | edge_preserving | mean_shift
+    bilateral_d: 9
+    bilateral_sigma_color: 75
+    bilateral_sigma_space: 75
+    default_K: 16  # KMeans 颜色数量
+
+# 区域融合配置
+fusion:
+  default_method: "soft_mask"  # soft_mask | laplacian_pyramid | poisson
+  soft_mask_blur_kernel: 21
+  pyramid_levels: 6
+  enable_seamless_blend: false
+  poisson_roi: "boundary_band"  # boundary_band | manual
+
+# 全局协调配置
+harmonization:
+  enabled: true
+  reference_region: "SKY"  # SKY | auto | style_id
+  histogram_matching: true
+  match_strength: 0.8  # 直方图匹配强度
+
+# 线稿配置
+lineart:
+  engine: "canny"  # canny | xdog
+  default_strength: 0.5
+  canny_low: 100
+  canny_high: 200
+  line_width: 1
+
+# 深度增强配置（可选）
+depth:
+  enabled: false
+  model: "MiDaS_small"
+  fog_strength: 0.3
+  fog_color: [0.7, 0.75, 0.85]
+  affect_saturation: true
+  affect_contrast: true
+  affect_edges: true
+
+# 区域预设配置
+region_presets:
+  SKY:
+    style: "Shinkai"
+    mix_weight: 1.0
+    toon_params:
+      K: 8
+      smooth_strength: 0.7
+      edge_strength: 0.3
+
+  PERSON:
+    style: "Hayao"
+    mix_weight: 1.0
+    toon_params:
+      K: 24
+      smooth_strength: 0.4
+      edge_strength: 0.6
+
+  BUILDING:
+    style: "Traditional"
+    mix_weight: 1.0
+    toon_params:
+      K: 16
+      smooth_strength: 0.6
+      edge_strength: 0.5
+
+  VEGETATION:
+    style: "Paprika"
+    mix_weight: 0.8
+    toon_params:
+      K: 16
+      smooth_strength: 0.5
+      edge_strength: 0.5
+
+  ROAD:
+    style: "Traditional"
+    mix_weight: 1.0
+    toon_params:
+      K: 12
+      smooth_strength: 0.6
+      edge_strength: 0.4
+
+  WATER:
+    style: "Shinkai"
+    mix_weight: 0.9
+    toon_params:
+      K: 10
+      smooth_strength: 0.8
+      edge_strength: 0.2
+
+  OTHERS:
+    style: "Traditional"
+    mix_weight: 1.0
+    toon_params:
+      K: 16
+      smooth_strength: 0.6
+      edge_strength: 0.5
+
+# 人脸保护策略
+face_policy:
+  enabled: true
+  mode: "protect"  # protect | blend | full_style
+  face_style: "Traditional"
+  gan_weight_max: 0.3
+  preserve_skin_tone: true
+  bbox_expand_ratio: 0.25  # 人脸框扩展比例
+
