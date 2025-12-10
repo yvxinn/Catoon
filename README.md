@@ -1,0 +1,182 @@
+# 🎨 Catoon - 语义感知可控卡通化框架
+
+> **Training-free 的语义感知可控卡通化系统**  
+> 对图像不同语义区域应用不同风格，解决多风格融合的"缝合怪"和"halo 伪影"问题
+
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
+[![PyTorch 2.0+](https://img.shields.io/badge/PyTorch-2.0+-red.svg)](https://pytorch.org/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+---
+
+## ✨ 特性
+
+- 🗺️ **语义感知**：自动识别天空、人物、建筑、植被等区域
+- 🎭 **多风格路由**：不同区域可应用不同卡通风格
+- 🔗 **无缝融合**：多档融合策略消除接缝伪影
+- 🎨 **全局协调**：直方图匹配解决"缝合怪"问题
+- 👤 **人脸保护**：防止人物面部过度风格化
+- 🖥️ **交互式 UI**：Gradio 界面实时预览与调整
+
+---
+
+## 🏗️ 架构
+
+```
+Input Image
+     │
+     ▼
+┌─────────────────────────────────────────────────────┐
+│ A. Preprocess → B. Semantic Analysis → C. Stylizers │
+│                        ↓                     ↓      │
+│                 D. Semantic Routing ←────────┘      │
+│                        ↓                            │
+│ E. Region Fusion → F. Harmonization → G. Line-art   │
+└─────────────────────────────────────────────────────┘
+     │
+     ▼
+Output Image
+```
+
+---
+
+## 🚀 快速开始
+
+### 环境配置
+
+```bash
+# 创建并激活环境
+conda activate catoon
+
+# 或从头创建
+conda create -n catoon python=3.10 -y
+conda activate catoon
+
+# 安装 PyTorch (CUDA 12.1)
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+# 安装其他依赖
+pip install -r requirements-lite.txt
+```
+
+### 运行 UI
+
+```bash
+cd /home/wyx/projects/Catoon
+python ui/gradio_app.py
+```
+
+访问 http://localhost:7860
+
+---
+
+## 📁 项目结构
+
+```
+Catoon/
+├── config/
+│   └── default.yaml      # 配置文件
+├── src/
+│   ├── context.py        # 核心数据结构
+│   ├── pipeline.py       # 主 Pipeline
+│   ├── preprocess/       # 预处理模块
+│   ├── segmentation/     # 语义分割 (SegFormer)
+│   ├── stylizers/        # 风格化器 (GAN + Traditional)
+│   ├── routing/          # 语义路由
+│   ├── fusion/           # 区域融合
+│   ├── harmonization/    # 全局协调
+│   ├── lineart/          # 线稿生成
+│   └── depth/            # 深度增强 (可选)
+├── ui/
+│   └── gradio_app.py     # Gradio UI
+├── docs/
+│   ├── design.md         # 完整设计文档
+│   ├── modules.md        # 模块规格
+│   ├── dataflow.md       # 数据结构
+│   └── PROGRESS.md       # 开发进度
+└── weights/              # 模型权重 (gitignore)
+```
+
+---
+
+## 🎯 开发路线图
+
+### Phase 1: MVP ← 当前
+
+- [x] 项目结构与文档
+- [x] 环境配置
+- [ ] SegFormer 语义分割
+- [ ] Traditional 风格化 (bilateral + KMeans)
+- [ ] Soft Mask 融合
+- [ ] 直方图匹配协调
+- [ ] Canny 线稿
+- [ ] 基础 UI
+
+### Phase 2: 核心增强
+
+- [ ] AnimeGANv2 接入
+- [ ] 人脸保护机制
+- [ ] Laplacian Pyramid 融合
+- [ ] 区域级 UI 控制
+
+### Phase 3: 展示加分
+
+- [ ] XDoG 线稿
+- [ ] Poisson 边界修复
+- [ ] MiDaS 深度增强
+- [ ] Guided Filter 细节注入
+
+---
+
+## 📖 文档
+
+| 文档 | 描述 |
+|------|------|
+| [design.md](docs/design.md) | 完整架构设计 |
+| [modules.md](docs/modules.md) | 模块详细规格 |
+| [dataflow.md](docs/dataflow.md) | 数据结构定义 |
+| [dependencies.md](docs/dependencies.md) | 依赖与安装 |
+| [PROGRESS.md](docs/PROGRESS.md) | 开发进度追踪 |
+
+---
+
+## 🔧 配置
+
+主要配置项 (`config/default.yaml`):
+
+```yaml
+global:
+  max_image_size: 1024
+  device: "auto"
+
+segmentation:
+  model: "segformer"
+  backbone: "mit-b2"
+
+fusion:
+  default_method: "soft_mask"
+
+harmonization:
+  enabled: true
+  reference_region: "SKY"
+
+lineart:
+  engine: "canny"
+  default_strength: 0.5
+```
+
+---
+
+## 🙏 致谢
+
+- [SegFormer](https://github.com/NVlabs/SegFormer) - 语义分割
+- [AnimeGAN](https://github.com/TachibanaYoshino/AnimeGAN) - 动漫风格化
+- [MediaPipe](https://mediapipe.dev/) - 人脸检测
+- [Gradio](https://gradio.app/) - UI 框架
+
+---
+
+## 📄 License
+
+MIT License
+

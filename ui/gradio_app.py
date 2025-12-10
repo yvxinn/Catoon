@@ -89,13 +89,10 @@ def process_image(
 def create_ui():
     """创建 Gradio UI"""
     
-    # 可用风格列表
-    style_choices = ["Hayao", "Shinkai", "Paprika", "Traditional"]
+    # 可用风格列表（Phase 2: 支持 AnimeGAN 风格）
+    style_choices = ["Traditional", "Hayao", "Shinkai", "Paprika"]
     
-    with gr.Blocks(
-        title="Catoon - 语义感知可控卡通化",
-        theme=gr.themes.Soft()
-    ) as demo:
+    with gr.Blocks(title="Catoon - 语义感知可控卡通化") as demo:
         
         gr.Markdown("""
         # 🎨 Catoon - 语义感知可控卡通化框架
@@ -152,10 +149,11 @@ def create_ui():
                     face_gan_weight_max = gr.Slider(0, 1, value=0.3, label="GAN权重上限")
                 
                 with gr.Accordion("🗺️ 区域风格", open=True):
+                    gr.Markdown("*为不同语义区域选择风格*")
                     sky_style = gr.Dropdown(choices=style_choices, value="Shinkai", label="天空")
-                    person_style = gr.Dropdown(choices=style_choices, value="Hayao", label="人物")
+                    person_style = gr.Dropdown(choices=style_choices, value="Traditional", label="人物")
                     building_style = gr.Dropdown(choices=style_choices, value="Traditional", label="建筑")
-                    vegetation_style = gr.Dropdown(choices=style_choices, value="Paprika", label="植被")
+                    vegetation_style = gr.Dropdown(choices=style_choices, value="Hayao", label="植被")
         
         # 绑定处理函数
         process_btn.click(
@@ -188,6 +186,7 @@ if __name__ == "__main__":
     demo.launch(
         server_name="0.0.0.0",
         server_port=7860,
-        share=False
+        share=False,
+        theme=gr.themes.Soft()
     )
 
