@@ -145,8 +145,8 @@ class CartoonPipeline:
         if self.face_detector:
             face_mask = self.face_detector.detect(ctx.image_u8)
         
-        # C. 风格候选生成（带缓存）
-        candidates = self._get_or_build_candidates(ctx)
+        # C. 风格候选生成（带缓存，传递 UI 参数）
+        candidates = self._get_or_build_candidates(ctx, ui_params)
         
         # D. 语义路由
         routing = self.router.route(
@@ -160,7 +160,8 @@ class CartoonPipeline:
             candidates=candidates,
             routing=routing,
             seg_out=seg_out,
-            method=ui_params.get("fusion_method", self.cfg.fusion.default_method)
+            method=ui_params.get("fusion_method", self.cfg.fusion.default_method),
+            blur_kernel=ui_params.get("fusion_blur_kernel")
         )
         
         # F. 全局协调
@@ -176,6 +177,11 @@ class CartoonPipeline:
             edges = self.lineart.extract(ctx.image_u8, ui_params)
             fused = self.lineart.overlay(fused, edges, edge_strength, ui_params)
         
+        # G2. 细节增强 (Phase 3 Guided Filter)
+        if ui_params.get("detail_enhance_enabled", False):
+            detail_strength = ui_params.get("detail_strength", 0.5)
+            fused = self.lineart.enhance_detail(fused, ctx.image_f32, detail_strength)
+        
         # H. 深度增强（可选）
         if self.depth_enhancer and ui_params.get("depth_fog_enabled", False):
             depth_map = self.depth_enhancer.estimate(ctx.image_u8)
@@ -185,9 +191,20 @@ class CartoonPipeline:
         out_u8 = self.preprocessor.postprocess(fused, ctx)
         return out_u8
     
-    def _get_or_build_candidates(self, ctx: Context) -> dict:
+    def _get_or_build_candidates(
+        self,
+        ctx: Context,
+        ui_params: dict | None = None
+    ) -> dict:
         """获取或构建风格候选（带缓存）"""
-        cache_key = ctx.make_cache_key("candidates")
+        ui_params = ui_params or {}
+        
+        # 构建缓存 key（包含影响输出的参数）
+        trad_k = ui_params.get("traditional_k", self.cfg.stylizers.traditional.default_K)
+        trad_method = ui_params.get("traditional_smooth_method", 
+                                    self.cfg.stylizers.traditional.smooth_method)
+        cache_key = ctx.make_cache_key(f"candidates_{trad_k}_{trad_method}")
+        
         cached = ctx.get_cache(cache_key)
         if cached is not None:
             return cached
@@ -195,7 +212,15 @@ class CartoonPipeline:
         # 构建所有候选
         candidates = {}
         for stylizer in self.stylizers.values():
-            candidate = stylizer.stylize(ctx.image_f32)
+            # 传递 UI 参数给传统风格化器
+            if stylizer.model_type == "traditional":
+                candidate = stylizer.stylize(
+                    ctx.image_f32,
+                    K=ui_params.get("traditional_k"),
+                    smooth_method=ui_params.get("traditional_smooth_method")
+                )
+            else:
+                candidate = stylizer.stylize(ctx.image_f32)
             candidates[candidate.style_id] = candidate
         
         ctx.set_cache(cache_key, candidates)

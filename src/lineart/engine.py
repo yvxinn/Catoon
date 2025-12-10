@@ -83,17 +83,34 @@ class LineartEngine:
         
         Args:
             image_u8: 输入图像 uint8
-            params: 参数字典
+            params: 参数字典 (line_engine, line_width, canny_low/high, xdog_sigma/k/p)
         
         Returns:
             边缘图 float32 (H,W) [0,1]
         """
         engine = params.get("line_engine", self.default_engine)
         
+        # 动态更新参数
+        line_width = params.get("line_width", self.line_width)
+        
         if engine == "canny":
+            # 动态更新 Canny 参数
+            canny_low = params.get("canny_low", self.canny_low)
+            canny_high = params.get("canny_high", self.canny_high)
+            self.canny_engine.low_threshold = canny_low
+            self.canny_engine.high_threshold = canny_high
+            self.canny_engine.line_width = line_width
             return self.canny_engine.extract(image_u8)
         
         elif engine == "xdog":
+            # 动态更新 XDoG 参数
+            xdog_sigma = params.get("xdog_sigma", self.xdog_sigma)
+            xdog_k = params.get("xdog_k", self.xdog_k)
+            xdog_p = params.get("xdog_p", self.xdog_p)
+            self.xdog_engine.sigma = xdog_sigma
+            self.xdog_engine.k = xdog_k
+            self.xdog_engine.p = xdog_p
+            self.xdog_engine.line_width = line_width
             return self.xdog_engine.extract(image_u8)
         
         else:

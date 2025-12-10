@@ -53,7 +53,8 @@ class FusionModule:
         candidates: dict[str, StyleCandidate],
         routing: RoutingPlan,
         seg_out: SegmentationOutput,
-        method: str | None = None
+        method: str | None = None,
+        blur_kernel: int | None = None
     ) -> np.ndarray:
         """
         融合候选图像
@@ -63,11 +64,17 @@ class FusionModule:
             routing: 路由计划
             seg_out: 分割输出
             method: 融合方法，默认使用配置
+            blur_kernel: 模糊核大小，动态覆盖
         
         Returns:
             融合后的图像 float32 (H,W,3) [0,1]
         """
         method = method or self.default_method
+        
+        # 动态更新 blur_kernel
+        if blur_kernel is not None:
+            self.soft_mask_fuser.blur_kernel = blur_kernel
+            self.pyramid_fuser.blur_kernel = blur_kernel
         
         if method == "soft_mask":
             return self.soft_mask_fuser.fuse(

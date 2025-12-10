@@ -43,7 +43,8 @@ class TraditionalStylizer(BaseStylizer):
         self, 
         image_f32: np.ndarray,
         K: int | None = None,
-        smooth_strength: float = 1.0
+        smooth_strength: float = 1.0,
+        smooth_method: str | None = None
     ) -> StyleCandidate:
         """
         对图像进行传统风格化
@@ -52,11 +53,17 @@ class TraditionalStylizer(BaseStylizer):
             image_f32: 输入图像，float32 (H,W,3) [0,1]
             K: 颜色量化的聚类数，默认使用配置值
             smooth_strength: 平滑强度，0~1
+            smooth_method: 平滑方法，动态覆盖 (bilateral/edge_preserving/mean_shift)
         
         Returns:
             StyleCandidate
         """
         K = K or self.default_K
+        
+        # 动态设置平滑方法
+        orig_method = self.smooth_method
+        if smooth_method is not None:
+            self.smooth_method = smooth_method
         
         # 转换为 uint8 进行处理
         image_u8 = (image_f32 * 255).astype(np.uint8)
@@ -72,6 +79,9 @@ class TraditionalStylizer(BaseStylizer):
         
         # 计算颜色统计
         color_stats = self.compute_color_stats(result_f32)
+        
+        # 恢复原始方法
+        self.smooth_method = orig_method
         
         return StyleCandidate(
             style_id=self.style_id,
