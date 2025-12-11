@@ -548,12 +548,6 @@ def create_ui():
                         
                         gr.Markdown("### 3. 开始生成")
                         process_btn = gr.Button("✨ 生成卡通图像", variant="primary", elem_classes="generate-btn", size="lg")
-                        
-                        realtime_toggle = gr.Checkbox(
-                            value=True, 
-                            label="启用实时预览 (Fine-tuning)",
-                            info="生成后，调整其他 Tab 参数时无需重新等待"
-                        )
 
                     # Tab 2: 后期微调 (Fine-tuning) - 实时调整
                     with gr.TabItem("🎛️ 后期微调", id="tab_tune"):
@@ -570,12 +564,12 @@ def create_ui():
                             line_engine = gr.Radio(["canny", "xdog"], value="canny", label="引擎", interactive=True)
                             line_width = gr.Slider(0.5, 4, value=1, step=0.25, label="线条粗细")
                             
-                            with gr.Group(visible=False) as adv_line_group: 
-                                canny_low = gr.Slider(50, 150, value=100)
-                                canny_high = gr.Slider(100, 300, value=200)
-                                xdog_sigma = gr.Slider(0.1, 2.0, value=0.5)
-                                xdog_k = gr.Slider(1.0, 3.0, value=1.6)
-                                xdog_p = gr.Slider(5.0, 50.0, value=19.0)
+                            with gr.Group(visible=True):
+                                canny_low = gr.Slider(50, 150, value=100, label="Canny 低阈值")
+                                canny_high = gr.Slider(100, 300, value=200, label="Canny 高阈值")
+                                xdog_sigma = gr.Slider(0.1, 2.0, value=0.5, label="XDoG Sigma")
+                                xdog_k = gr.Slider(1.0, 3.0, value=1.6, label="XDoG K")
+                                xdog_p = gr.Slider(5.0, 50.0, value=19.0, label="XDoG P")
 
                         with gr.Accordion("🔍 纹理细节", open=False):
                             detail_enhance_enabled = gr.Checkbox(False, label="启用纹理增强 (Guided Filter)")
@@ -707,6 +701,13 @@ def create_ui():
         
         # ================== 事件绑定 ==================
         process_btn.click(
+            fn=process_image,
+            inputs=all_inputs,
+            outputs=output_image
+        )
+
+        # 上传图片后自动处理，保持原有“即传即算”体验
+        input_image.change(
             fn=process_image,
             inputs=all_inputs,
             outputs=output_image

@@ -101,7 +101,7 @@ class SoftMaskFusion:
         # 处理人脸保护区域
         if routing.face_protection_mask is not None:
             fused = self._apply_face_protection(
-                fused, candidates, routing, original_image
+                fused, candidates, routing, original_image, region_candidates
             )
         
         # Clamp 到 [0, 1]

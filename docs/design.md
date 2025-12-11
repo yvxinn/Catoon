@@ -329,6 +329,7 @@ face_policy:
 - **protect（默认）**：人脸区域强制使用 `face_style`，或把 GAN 权重 clamp 到 `gan_weight_max`
 - **blend**：face_style 与原路由 style 混合（例如 0.7 trad + 0.3 gan）
 - **full_style**：不保护（用于对比实验）
+- **区域一致性**：人脸保护阶段优先使用 PERSON 区域的“区域级候选”（含 toon_K/strength），避免回退全局 K 造成人物脸部与身体风格不一致
 
 ### 输出
 

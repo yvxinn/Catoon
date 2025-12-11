@@ -191,6 +191,7 @@ class RegionStylizer:
 **缓存策略**：
 - Traditional 风格：`{region}_{style}_K{k}_S{smooth}` （K 值影响输出）
 - GAN 风格：`{region}_{style}` （直接复用全局候选）
+- 人脸保护：face 区域优先使用区域级候选（含 toon_K/strength），避免回退全局 K 造成不一致
 
 ---
 
