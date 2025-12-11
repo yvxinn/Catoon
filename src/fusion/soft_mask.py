@@ -197,4 +197,3 @@ def create_soft_mask_fusion(blur_kernel: int = 21) -> SoftMaskFusion:
         SoftMaskFusion 实例
     """
     return SoftMaskFusion(blur_kernel)
-

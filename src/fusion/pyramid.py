@@ -120,7 +120,9 @@ class LaplacianPyramidFusion:
         
         # 处理人脸保护区域
         if routing.face_protection_mask is not None:
-            fused = self._apply_face_protection(fused, candidates, routing, original_image)
+            fused = self._apply_face_protection(
+                fused, candidates, routing, original_image, region_candidates
+            )
         
         return np.clip(fused, 0, 1).astype(np.float32)
     
@@ -231,7 +233,8 @@ class LaplacianPyramidFusion:
         fused: np.ndarray,
         candidates: dict[str, StyleCandidate],
         routing: RoutingPlan,
-        original_image: np.ndarray | None = None
+        original_image: np.ndarray | None = None,
+        region_candidates: dict[str, StyleCandidate] | None = None,
     ) -> np.ndarray:
         """应用人脸保护"""
         face_mask = routing.face_protection_mask
@@ -242,7 +245,12 @@ class LaplacianPyramidFusion:
         if person_config is None:
             return fused
         
-        face_candidate = candidates.get(person_config.style_id)
+        # 优先使用区域级候选，保证与区域融合一致的 toon_K/参数
+        face_candidate = None
+        if region_candidates and "PERSON" in region_candidates:
+            face_candidate = region_candidates.get("PERSON")
+        if face_candidate is None:
+            face_candidate = candidates.get(person_config.style_id)
         if face_candidate is None:
             face_candidate = candidates.get("Traditional")
         if face_candidate is None:

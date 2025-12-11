@@ -1,7 +1,7 @@
 """
-Gradio UI - 交互式卡通化界面
+Gradio UI - 交互式卡通化界面 (Professional Version)
 
-提供可视化的参数调整和实时预览。
+面向客户的现代化界面，提供可视化的参数调整和实时预览。
 支持实时调整（不重新推理）的参数。
 """
 
@@ -444,231 +444,230 @@ def process_image(
 
 
 def create_ui():
-    """创建 Gradio UI"""
+    """创建 Gradio UI (Professional Version)"""
     
     style_choices = ["Traditional", "Hayao", "Shinkai", "Paprika"]
     semantic_buckets = ["SKY", "PERSON", "BUILDING", "VEGETATION", "ROAD", "WATER", "OTHERS"]
     
-    with gr.Blocks(title="Catoon - 语义感知可控卡通化") as demo:
+    # 定制主题 - 使用更专业的蓝紫色调
+    theme = gr.themes.Soft(
+        primary_hue="indigo",
+        secondary_hue="slate",
+        neutral_hue="slate",
+        text_size=gr.themes.sizes.text_md,
+        radius_size=gr.themes.sizes.radius_md,
+    )
+
+    # 自定义 CSS：增加滚动容器样式
+    # 重要修正：.scroll-container 使用 display: block !important 防止 Flex 压缩子元素
+    css = """
+    .gradio-container {
+        font-family: 'Helvetica Neue', 'Segoe UI', Roboto, sans-serif;
+    }
+    .generate-btn {
+        background: linear-gradient(90deg, #6366f1 0%, #4338ca 100%) !important;
+        border: none !important;
+        color: white !important;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        transition: transform 0.1s;
+    }
+    .generate-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 6px 8px rgba(0,0,0,0.15);
+    }
+    .mask-btn {
+        font-size: 0.8rem !important;
+        padding: 4px 8px !important;
+    }
+    /* 核心修改：内部滚动容器 */
+    .scroll-container {
+        max-height: 650px;       /* 限制最大高度 */
+        overflow-y: auto;        /* 允许垂直滚动 */
+        padding-right: 12px;     /* 给滚动条留出空间 */
+        border-radius: 8px;
+        background-color: rgba(249, 250, 251, 0.5); /* 极淡的背景色区分 */
+        display: block !important; /* 【关键】强制块级布局，防止 Gradio 的 flex 压缩子元素 */
+    }
+    /* 手动补充子元素间距 (因为 block 布局不支持 gap) */
+    .scroll-container > * {
+        margin-bottom: 16px;
+    }
+    .scroll-container > *:last-child {
+        margin-bottom: 0;
+    }
+    
+    /* 美化滚动条 */
+    .scroll-container::-webkit-scrollbar {
+        width: 6px;
+    }
+    .scroll-container::-webkit-scrollbar-thumb {
+        background-color: #cbd5e1;
+        border-radius: 4px;
+    }
+    .scroll-container::-webkit-scrollbar-track {
+        background-color: transparent;
+    }
+    """
+
+    with gr.Blocks(title="Catoon Pro - AI 图像风格化", theme=theme, css=css) as demo:
         
-        gr.Markdown("""
-        # 🎨 Catoon - 语义感知可控卡通化框架
-        
-        上传图像后，调整参数可**实时预览**效果！
-        
-        > 💡 **实时调整**：融合、线稿、色调、区域风格等参数更改后立即生效  
-        > 🔄 **重新计算**：仅上传新图像或更改风格化参数时重新推理
-        """)
+        # 顶栏
+        with gr.Row(elem_classes="header"):
+            with gr.Column():
+                gr.Markdown(
+                    """
+                    # 🎨 Catoon Pro
+                    ### 语义感知可控卡通化工作站
+                    """
+                )
         
         with gr.Row():
-            # 左侧：输入和输出
-            with gr.Column(scale=2):
-                # 语义遮罩可视化按钮（移到顶部）
-                gr.Markdown("**🔍 点击切换语义区域遮罩** *(可叠加多个)*")
-                with gr.Row():
-                    btn_none = gr.Button("🔄 清除", size="sm")
-                    btn_sky = gr.Button("☁️ 天空", size="sm", variant="secondary")
-                    btn_person = gr.Button("👤 人物", size="sm", variant="secondary")
-                    btn_face = gr.Button("😊 人脸", size="sm", variant="secondary")
-                    btn_building = gr.Button("🏠 建筑", size="sm", variant="secondary")
-                with gr.Row():
-                    btn_vegetation = gr.Button("🌳 植被", size="sm", variant="secondary")
-                    btn_road = gr.Button("🛤️ 道路", size="sm", variant="secondary")
-                    btn_water = gr.Button("🌊 水体", size="sm", variant="secondary")
-                    btn_others = gr.Button("📦 其他", size="sm", variant="secondary")
+            # ================== 左侧控制区 (Tabbed) ==================
+            with gr.Column(scale=1, min_width=350):
                 
-                mask_info = gr.Textbox(label="", value="上传图像后点击按钮查看语义区域", show_label=False, max_lines=1)
-                
-                # 使用单独的预览组件，不影响 input_image
-                with gr.Row():
-                    input_image = gr.Image(label="📷 输入图像", type="numpy")
-                    mask_preview = gr.Image(label="🔍 语义遮罩预览", type="numpy")
-                
-                output_image = gr.Image(label="🖼️ 输出结果", type="numpy")
-                
-                with gr.Row():
-                    process_btn = gr.Button("🚀 处理图像", variant="primary", size="lg")
-                    realtime_toggle = gr.Checkbox(
-                        value=True, 
-                        label="⚡ 实时预览",
-                        info="开启后调整参数立即更新"
-                    )
+                with gr.Tabs():
+                    
+                    # Tab 1: 基础风格 (Base Style) - 用户入口
+                    with gr.TabItem("🚀 基础风格", id="tab_base"):
+                        gr.Markdown("### 1. 上传图片与选择基础模式")
+                        input_image = gr.Image(label="上传图片", type="numpy", height=300)
+                        
+                        gr.Markdown("### 2. 全局风格设置")
+                        with gr.Group():
+                            traditional_smooth_method = gr.Dropdown(
+                                choices=["bilateral", "edge_preserving", "mean_shift"],
+                                value="bilateral",
+                                label="平滑算法",
+                                info="决定画面的'色块感'程度"
+                            )
+                            traditional_k = gr.Slider(
+                                4, 48, value=16, step=4,
+                                label="色彩量化 (K值)",
+                                info="数值越小，颜色越简化，卡通感越强"
+                            )
+                        
+                        gr.Markdown("### 3. 开始生成")
+                        process_btn = gr.Button("✨ 生成卡通图像", variant="primary", elem_classes="generate-btn", size="lg")
+                        
+                        realtime_toggle = gr.Checkbox(
+                            value=True, 
+                            label="启用实时预览 (Fine-tuning)",
+                            info="生成后，调整其他 Tab 参数时无需重新等待"
+                        )
+
+                    # Tab 2: 后期微调 (Fine-tuning) - 实时调整
+                    with gr.TabItem("🎛️ 后期微调", id="tab_tune"):
+                        gr.Markdown("*以下参数调整可实时预览*")
+                        
+                        with gr.Accordion("🎨 色调与光影", open=True):
+                            gamma = gr.Slider(0.5, 2.0, value=1.0, label="Gamma (明暗)", step=0.05)
+                            saturation = gr.Slider(0.5, 1.5, value=1.0, label="饱和度 (鲜艳度)", step=0.05)
+                            contrast = gr.Slider(0.5, 1.5, value=1.0, label="对比度", step=0.05)
+                            brightness = gr.Slider(-50, 50, value=0, label="亮度微调")
+
+                        with gr.Accordion("✏️ 线稿增强", open=True):
+                            edge_strength = gr.Slider(0, 1, value=0.5, label="线稿不透明度")
+                            line_engine = gr.Radio(["canny", "xdog"], value="canny", label="引擎", interactive=True)
+                            line_width = gr.Slider(0.5, 4, value=1, step=0.25, label="线条粗细")
+                            
+                            with gr.Group(visible=False) as adv_line_group: 
+                                canny_low = gr.Slider(50, 150, value=100)
+                                canny_high = gr.Slider(100, 300, value=200)
+                                xdog_sigma = gr.Slider(0.1, 2.0, value=0.5)
+                                xdog_k = gr.Slider(1.0, 3.0, value=1.6)
+                                xdog_p = gr.Slider(5.0, 50.0, value=19.0)
+
+                        with gr.Accordion("🔍 纹理细节", open=False):
+                            detail_enhance_enabled = gr.Checkbox(False, label="启用纹理增强 (Guided Filter)")
+                            detail_strength = gr.Slider(0, 1, value=0.5, label="纹理强度")
+
+                    # Tab 3: 区域精修 (Region Styles) - 核心修改部分
+                    with gr.TabItem("🗺️ 区域精修", id="tab_region"):
+                        gr.Markdown("### 指定特定区域的风格")
+                        gr.Markdown("*针对识别出的语义区域单独设置风格*")
+                        
+                        # 使用 scroll-container 包裹所有区域设置，并取消折叠
+                        # CSS 中已设置 display: block !important 避免布局崩坏
+                        with gr.Column(elem_classes="scroll-container"):
+                            
+                            with gr.Group():
+                                sky_style = gr.Dropdown(style_choices, value="Shinkai", label="☁️ 天空")
+                                sky_strength = gr.Slider(0, 1, value=1.0, label="强度")
+                                sky_k = gr.Slider(4, 64, value=16, step=2, label="K值 (Traditional)", visible=True) 
+
+                            with gr.Group():
+                                person_style = gr.Dropdown(style_choices, value="Traditional", label="👤 人物")
+                                person_strength = gr.Slider(0, 1, value=0.7, label="强度")
+                                person_k = gr.Slider(4, 64, value=20, step=2, label="K值 (Traditional)",visible=True)
+
+                            with gr.Group():
+                                building_style = gr.Dropdown(style_choices, value="Traditional", label="🏠 建筑")
+                                building_strength = gr.Slider(0, 1, value=1.0, label="强度")
+                                building_k = gr.Slider(4, 64, value=16, step=2, label="K值 (Traditional)",visible=True)
+
+                            with gr.Group():
+                                vegetation_style = gr.Dropdown(style_choices, value="Hayao", label="🌳 植被")
+                                vegetation_strength = gr.Slider(0, 1, value=1.0, label="强度")
+                                vegetation_k = gr.Slider(4, 64, value=24, step=2, label="K值 (Traditional)",visible=True)
+
+                            # 移除了 Accordion，直接平铺显示
+                            with gr.Group():
+                                road_style = gr.Dropdown(style_choices, value="Traditional", label="🛤️ 道路")
+                                road_strength = gr.Slider(0, 1, value=1.0, label="强度")
+                                road_k = gr.Slider(4, 64, value=12, step=2, label="K值 (Traditional)",visible=True)
+                                
+                            with gr.Group():
+                                water_style = gr.Dropdown(style_choices, value="Shinkai", label="🌊 水体")
+                                water_strength = gr.Slider(0, 1, value=1.0, label="强度")
+                                water_k = gr.Slider(4, 64, value=16, step=2, label="K值 (Traditional)",visible=True)
+                                
+                            with gr.Group():
+                                others_style = gr.Dropdown(style_choices, value="Traditional", label="📦 其他")
+                                others_strength = gr.Slider(0, 1, value=1.0, label="强度")
+                                others_k = gr.Slider(4, 64, value=16, step=2, label="K值 (Traditional)",visible=True)
+
+                    # Tab 4: 高级设置 (Advanced)
+                    with gr.TabItem("⚙️ 高级", id="tab_adv"):
+                        
+                        with gr.Group():
+                            gr.Markdown("**👤 人脸保护策略**")
+                            face_protect_enabled = gr.Checkbox(True, label="启用人脸保护")
+                            face_protect_mode = gr.Radio(["protect", "blend", "full_style"], value="protect", label="模式")
+                            face_gan_weight_max = gr.Slider(0, 1, value=0.3, label="最大风格化权重")
+                        
+                        with gr.Group():
+                            gr.Markdown("**🎨 全局色彩协调**")
+                            harmonization_enabled = gr.Checkbox(True, label="启用直方图匹配 (解决色调不一)")
+                            harmonization_reference = gr.Dropdown(semantic_buckets + ["auto"], value="SKY", label="参考区域")
+                            harmonization_strength = gr.Slider(0, 1, value=0.8, label="匹配强度")
+
+                        with gr.Group():
+                            gr.Markdown("**🔀 融合算法**")
+                            fusion_method = gr.Radio(["soft_mask", "laplacian_pyramid", "poisson"], value="soft_mask", label="算法")
+                            fusion_blur_kernel = gr.Slider(5, 51, value=21, step=2, label="边缘模糊半径")
             
-            # 右侧：参数控制
-            with gr.Column(scale=1):
+            # ================== 右侧预览区 ==================
+            with gr.Column(scale=2):
+                output_image = gr.Image(label="最终效果预览", type="numpy", elem_id="output_img", height=600)
                 
-                # ========== 风格化设置（需要重新计算）==========
-                with gr.Accordion("🖌️ 风格化设置 (更改后需重新计算)", open=False):
-                    gr.Markdown("⚠️ *更改这些参数需要点击「处理图像」按钮*")
-                    traditional_smooth_method = gr.Radio(
-                        choices=["bilateral", "edge_preserving", "mean_shift"],
-                        value="bilateral",
-                        label="平滑方法",
-                        info="bilateral: 双边滤波，保边效果好 | edge_preserving: OpenCV边缘保持 | mean_shift: 均值漂移，色块更明显"
-                    )
-                    traditional_k = gr.Slider(
-                        4, 48, value=16, step=4,
-                        label="颜色量化 K",
-                        info="K值越大颜色越丰富，越小色块越明显（推荐8-24）"
-                    )
-                
-                # ========== 以下参数支持实时调整 ==========
-                gr.Markdown("---\n**以下参数支持实时调整** ⚡")
-                
-                # ========== 融合设置 ==========
-                with gr.Accordion("🔀 融合设置", open=True):
-                    fusion_method = gr.Radio(
-                        choices=["soft_mask", "laplacian_pyramid", "poisson"],
-                        value="soft_mask",
-                        label="融合方法",
-                        info="soft_mask: 快速模糊融合 | laplacian_pyramid: 多尺度融合，接缝更自然 | poisson: 泊松融合（实验性）"
-                    )
-                    fusion_blur_kernel = gr.Slider(
-                        5, 51, value=21, step=2,
-                        label="模糊核大小",
-                        info="控制区域边界的过渡宽度，值越大过渡越平滑"
-                    )
-                
-                # ========== 区域风格 ==========
-                with gr.Accordion("🗺️ 区域风格", open=True):
-                    gr.Markdown("*每个区域可独立设置：风格、强度、K值*")
-                    
-                    # 天空
-                    with gr.Group():
-                        with gr.Row():
-                            sky_style = gr.Dropdown(choices=style_choices, value="Shinkai", label="☁️ 天空",
-                                info="推荐 Shinkai", scale=2)
-                            sky_strength = gr.Slider(0, 1, value=1.0, label="强度", scale=1,
-                                info="0=原图，1=完全风格化")
-                            sky_k = gr.Slider(4, 64, value=16, step=2, label="K", scale=1,
-                                info="Traditional 专用，范围 4-64")
-                    
-                    # 人物
-                    with gr.Group():
-                        with gr.Row():
-                            person_style = gr.Dropdown(choices=style_choices, value="Traditional", label="👤 人物",
-                                info="推荐 Traditional", scale=2)
-                            person_strength = gr.Slider(0, 1, value=0.7, label="强度", scale=1,
-                                info="人物建议0.5-0.8")
-                            person_k = gr.Slider(4, 64, value=20, step=2, label="K", scale=1,
-                                info="Traditional 专用，范围 4-64")
-                    
-                    # 建筑
-                    with gr.Group():
-                        with gr.Row():
-                            building_style = gr.Dropdown(choices=style_choices, value="Traditional", label="🏠 建筑",
-                                info="建筑物风格", scale=2)
-                            building_strength = gr.Slider(0, 1, value=1.0, label="强度", scale=1)
-                            building_k = gr.Slider(4, 64, value=16, step=2, label="K", scale=1,
-                                info="Traditional 专用，范围 4-64")
-                    
-                    # 植被
-                    with gr.Group():
-                        with gr.Row():
-                            vegetation_style = gr.Dropdown(choices=style_choices, value="Hayao", label="🌳 植被",
-                                info="推荐 Hayao", scale=2)
-                            vegetation_strength = gr.Slider(0, 1, value=1.0, label="强度", scale=1)
-                            vegetation_k = gr.Slider(4, 64, value=24, step=2, label="K", scale=1,
-                                info="Traditional 专用，植被建议 K 大一些，范围 4-64")
-                    
-                    # 道路
-                    with gr.Group():
-                        with gr.Row():
-                            road_style = gr.Dropdown(choices=style_choices, value="Traditional", label="🛤️ 道路",
-                                info="道路/地面风格", scale=2)
-                            road_strength = gr.Slider(0, 1, value=1.0, label="强度", scale=1)
-                            road_k = gr.Slider(4, 64, value=12, step=2, label="K", scale=1,
-                                info="Traditional 专用，范围 4-64")
-                    
-                    # 水体
-                    with gr.Group():
-                        with gr.Row():
-                            water_style = gr.Dropdown(choices=style_choices, value="Shinkai", label="🌊 水体",
-                                info="推荐 Shinkai", scale=2)
-                            water_strength = gr.Slider(0, 1, value=1.0, label="强度", scale=1)
-                            water_k = gr.Slider(4, 64, value=16, step=2, label="K", scale=1,
-                                info="Traditional 专用，范围 4-64")
-                    
-                    # 其他
-                    with gr.Group():
-                        with gr.Row():
-                            others_style = gr.Dropdown(choices=style_choices, value="Traditional", label="📦 其他",
-                                info="未分类区域", scale=2)
-                            others_strength = gr.Slider(0, 1, value=1.0, label="强度", scale=1)
-                            others_k = gr.Slider(4, 64, value=16, step=2, label="K", scale=1,
-                                info="Traditional 专用，范围 4-64")
-                
-                # ========== 线稿设置 ==========
-                with gr.Accordion("✏️ 线稿设置", open=True):
-                    edge_strength = gr.Slider(0, 1, value=0.5, label="线稿强度",
-                        info="0=无线稿，1=最强线稿，推荐0.3-0.6")
-                    line_engine = gr.Radio(choices=["canny", "xdog"], value="canny", label="线稿引擎",
-                        info="canny: 经典边缘检测，稳定 | xdog: 艺术风格线条，更有手绘感")
-                    line_width = gr.Slider(0.5, 4, value=1, step=0.25, label="线条宽度",
-                        info="线条粗细更精细：0.5=极细，2=中等，4=较粗（内部会取整）")
-                    
-                    with gr.Group():
-                        gr.Markdown("**Canny 参数**")
-                        canny_low = gr.Slider(50, 150, value=100, label="低阈值",
-                            info="边缘检测低阈值，值越低检测到的边缘越多")
-                        canny_high = gr.Slider(100, 300, value=200, label="高阈值",
-                            info="边缘检测高阈值，值越高只保留强边缘")
-                    
-                    with gr.Group():
-                        gr.Markdown("**XDoG 参数**")
-                        xdog_sigma = gr.Slider(0.1, 2.0, value=0.5, label="Sigma",
-                            info="高斯模糊程度，值越大线条越粗犷")
-                        xdog_k = gr.Slider(1.0, 3.0, value=1.6, label="K",
-                            info="两个高斯核的比例，影响边缘检测范围")
-                        xdog_p = gr.Slider(5.0, 50.0, value=19.0, label="P",
-                            info="锐化程度，值越大线条对比度越高")
-                
-                # ========== 全局协调 ==========
-                with gr.Accordion("🎨 全局协调", open=False):
-                    harmonization_enabled = gr.Checkbox(value=True, label="启用直方图匹配",
-                        info="统一各区域的色调，减少拼接感")
-                    harmonization_reference = gr.Dropdown(
-                        choices=semantic_buckets + ["auto"],
-                        value="SKY",
-                        label="参考区域",
-                        info="以哪个区域的色调为基准进行统一"
-                    )
-                    harmonization_strength = gr.Slider(0, 1, value=0.8, label="匹配强度",
-                        info="色调统一的程度，0=不统一，1=完全统一")
-                
-                # ========== 细节增强 ==========
-                with gr.Accordion("🔍 细节增强", open=False):
-                    detail_enhance_enabled = gr.Checkbox(value=False, label="启用 Guided Filter",
-                        info="使用导向滤波增强图像细节和纹理")
-                    detail_strength = gr.Slider(0, 1, value=0.5, label="增强强度",
-                        info="细节增强程度，过高可能产生噪点")
-                
-                # ========== 色调调整 ==========
-                with gr.Accordion("🌈 色调调整", open=False):
-                    gamma = gr.Slider(0.5, 2.0, value=1.0, label="Gamma",
-                        info="<1 变亮，>1 变暗，调整整体明暗")
-                    contrast = gr.Slider(0.5, 1.5, value=1.0, label="对比度",
-                        info="<1 降低对比度，>1 增强对比度")
-                    saturation = gr.Slider(0.5, 1.5, value=1.0, label="饱和度",
-                        info="<1 降低饱和度（偏灰），>1 增强饱和度（更鲜艳）")
-                    brightness = gr.Slider(-50, 50, value=0, label="亮度",
-                        info="直接增减亮度值，负值变暗，正值变亮")
-                
-                # ========== 人脸保护 ==========
-                with gr.Accordion("👤 人脸保护", open=False):
-                    face_protect_enabled = gr.Checkbox(value=True, label="启用人脸保护",
-                        info="保护人脸区域不被过度风格化")
-                    face_protect_mode = gr.Radio(
-                        choices=["protect", "blend", "full_style"],
-                        value="protect",
-                        label="保护模式",
-                        info="protect: 最大保护 | blend: 轻微风格化 | full_style: 无保护"
-                    )
-                    face_gan_weight_max = gr.Slider(0, 1, value=0.3, label="GAN 权重上限",
-                        info="人脸区域允许的最大 GAN 风格化强度"
-                    )
-        
-        # 所有输入参数列表（包含区域级 strength 和 k）
+                # 语义遮罩工具栏
+                gr.Markdown("##### 🔍 语义层检视 (点击叠加显示)")
+                with gr.Row(elem_id="mask_toolbar"):
+                    btn_none = gr.Button("🔄 原图", size="sm", elem_classes="mask-btn")
+                    btn_sky = gr.Button("☁️ 天空", size="sm", elem_classes="mask-btn")
+                    btn_person = gr.Button("👤 人物", size="sm", elem_classes="mask-btn")
+                    btn_face = gr.Button("😊 面部", size="sm", elem_classes="mask-btn")
+                    btn_building = gr.Button("🏠 建筑", size="sm", elem_classes="mask-btn")
+                    btn_vegetation = gr.Button("🌳 植被", size="sm", elem_classes="mask-btn")
+                    btn_road = gr.Button("🛤️ 道路", size="sm", elem_classes="mask-btn")
+                    btn_water = gr.Button("🌊 水体", size="sm", elem_classes="mask-btn")
+                    btn_others = gr.Button("📦 其他", size="sm", elem_classes="mask-btn")
+
+                with gr.Accordion("遮罩调试视图", open=False, visible=True):
+                    mask_preview = gr.Image(label="语义遮罩层", type="numpy", height=300)
+                    mask_info = gr.Textbox(label="覆盖率信息", show_label=False)
+
+        # 整理所有输入
         all_inputs = [
             input_image,
             traditional_smooth_method, traditional_k,
@@ -688,31 +687,7 @@ def create_ui():
             others_style, others_strength, others_k,
         ]
         
-        # 实时调整参数（不包含 input_image 和 traditional_* ）
-        realtime_inputs = all_inputs[3:]  # 跳过 image 和 traditional 参数
-        
-        # 点击按钮处理
-        process_btn.click(
-            fn=process_image,
-            inputs=all_inputs,
-            outputs=output_image
-        )
-        
-        # 图像上传时自动处理
-        input_image.change(
-            fn=process_image,
-            inputs=all_inputs,
-            outputs=output_image
-        )
-        
-        # 实时预览函数
-        def realtime_update(*args):
-            """实时更新（仅当缓存存在时）"""
-            if _cache["candidates"] is None:
-                return None
-            return realtime_render(*args)
-        
-        # 为实时参数绑定 change 事件
+        # 实时调整参数列表
         realtime_components = [
             fusion_method, fusion_blur_kernel,
             harmonization_enabled, harmonization_reference, harmonization_strength,
@@ -730,6 +705,19 @@ def create_ui():
             others_style, others_strength, others_k,
         ]
         
+        # ================== 事件绑定 ==================
+        process_btn.click(
+            fn=process_image,
+            inputs=all_inputs,
+            outputs=output_image
+        )
+        
+        def realtime_update(*args):
+            """实时更新（仅当缓存存在时）"""
+            if _cache["candidates"] is None:
+                return None 
+            return realtime_render(*args)
+        
         for component in realtime_components:
             component.change(
                 fn=realtime_update,
@@ -737,7 +725,6 @@ def create_ui():
                 outputs=output_image
             )
         
-        # 语义遮罩可视化按钮绑定（更新单独的预览组件，不影响输入图像）
         btn_none.click(lambda: visualize_semantic_mask("NONE"), outputs=[mask_preview, mask_info])
         btn_sky.click(lambda: visualize_semantic_mask("SKY"), outputs=[mask_preview, mask_info])
         btn_person.click(lambda: visualize_semantic_mask("PERSON"), outputs=[mask_preview, mask_info])
@@ -748,18 +735,6 @@ def create_ui():
         btn_water.click(lambda: visualize_semantic_mask("WATER"), outputs=[mask_preview, mask_info])
         btn_others.click(lambda: visualize_semantic_mask("OTHERS"), outputs=[mask_preview, mask_info])
         
-        gr.Markdown("""
-        ---
-        ### ⚡ 实时预览说明
-        
-        | 参数类型 | 行为 |
-        |---------|------|
-        | **风格化参数** | 需点击「处理图像」重新计算 |
-        | **其他参数** | 调整后立即更新预览 |
-        
-        **风格说明**：`Traditional` 双边滤波 | `Hayao` 宫崎骏 | `Shinkai` 新海诚 | `Paprika` 今敏
-        """)
-    
     return demo
 
 
@@ -768,6 +743,5 @@ if __name__ == "__main__":
     demo.launch(
         server_name="0.0.0.0",
         server_port=7860,
-        share=False,
-        theme=gr.themes.Soft()
+        share=False
     )
