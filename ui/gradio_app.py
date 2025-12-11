@@ -25,6 +25,20 @@ _cache = {
     "face_mask": None,
     "candidates": None,
     "trad_params": None,  # (k, smooth_method)
+    "original_image": None,  # 原图用于遮罩可视化
+    "active_masks": set(),   # 当前激活的语义遮罩（用于叠加）
+}
+
+# 语义区域颜色映射（更鲜艳的颜色）
+SEMANTIC_COLORS = {
+    "SKY": (0, 150, 255),         # 亮蓝色
+    "PERSON": (255, 50, 150),     # 亮粉色
+    "BUILDING": (255, 150, 0),    # 橙色
+    "VEGETATION": (0, 255, 100),  # 亮绿色
+    "ROAD": (128, 128, 128),      # 灰色
+    "WATER": (0, 200, 255),       # 青色
+    "OTHERS": (255, 255, 0),      # 黄色
+    "FACE": (255, 0, 100),        # 玫红色
 }
 
 
@@ -105,6 +119,8 @@ def full_compute(
     _cache["face_mask"] = face_mask
     _cache["candidates"] = candidates
     _cache["trad_params"] = trad_params
+    _cache["original_image"] = image.copy()
+    _cache["active_masks"] = set()  # 重置激活的遮罩
     
     print("[Pipeline] 完整计算完成，已缓存中间结果")
 
@@ -138,14 +154,14 @@ def realtime_render(
     face_protect_enabled: bool,
     face_protect_mode: str,
     face_gan_weight_max: float,
-    # 区域风格
-    sky_style: str,
-    person_style: str,
-    building_style: str,
-    vegetation_style: str,
-    road_style: str,
-    water_style: str,
-    others_style: str,
+    # 区域风格（风格 + 强度 + K）
+    sky_style: str, sky_strength: float, sky_k: int,
+    person_style: str, person_strength: float, person_k: int,
+    building_style: str, building_strength: float, building_k: int,
+    vegetation_style: str, vegetation_strength: float, vegetation_k: int,
+    road_style: str, road_strength: float, road_k: int,
+    water_style: str, water_strength: float, water_k: int,
+    others_style: str, others_strength: float, others_k: int,
 ) -> np.ndarray | None:
     """
     实时渲染（不重新推理，直接使用缓存）
@@ -159,7 +175,7 @@ def realtime_render(
     face_mask = _cache["face_mask"]
     candidates = _cache["candidates"]
     
-    # 构建 UI 参数
+    # 构建 UI 参数（包含区域级 strength 和 k）
     ui_params = {
         "fusion_method": fusion_method,
         "fusion_blur_kernel": fusion_blur_kernel,
@@ -184,13 +200,13 @@ def realtime_render(
         "face_protect_mode": face_protect_mode,
         "face_gan_weight_max": face_gan_weight_max,
         "region_overrides": {
-            "SKY": {"style": sky_style},
-            "PERSON": {"style": person_style},
-            "BUILDING": {"style": building_style},
-            "VEGETATION": {"style": vegetation_style},
-            "ROAD": {"style": road_style},
-            "WATER": {"style": water_style},
-            "OTHERS": {"style": others_style},
+            "SKY": {"style": sky_style, "strength": sky_strength, "k": int(sky_k)},
+            "PERSON": {"style": person_style, "strength": person_strength, "k": int(person_k)},
+            "BUILDING": {"style": building_style, "strength": building_strength, "k": int(building_k)},
+            "VEGETATION": {"style": vegetation_style, "strength": vegetation_strength, "k": int(vegetation_k)},
+            "ROAD": {"style": road_style, "strength": road_strength, "k": int(road_k)},
+            "WATER": {"style": water_style, "strength": water_strength, "k": int(water_k)},
+            "OTHERS": {"style": others_style, "strength": others_strength, "k": int(others_k)},
         }
     }
     
@@ -201,13 +217,24 @@ def realtime_render(
         ui_overrides=ui_params
     )
     
-    # E. 区域融合（轻量）
+    # C2. 区域级风格化（按需生成，带缓存）
+    region_candidates = pipe.region_stylizer.generate_region_styles(
+        image_f32=ctx.image_f32,
+        image_hash=ctx.image_hash,
+        seg_out=seg_out,
+        region_configs=routing.region_configs,
+        global_candidates=candidates
+    )
+    
+    # E. 区域融合（轻量）- 传递原图和区域候选
     fused = pipe.fuser.fuse(
         candidates=candidates,
         routing=routing,
         seg_out=seg_out,
         method=fusion_method,
-        blur_kernel=fusion_blur_kernel
+        blur_kernel=fusion_blur_kernel,
+        original_image=ctx.image_f32,
+        region_candidates=region_candidates
     )
     
     # F. 全局协调（轻量）
@@ -270,6 +297,89 @@ def apply_tone_adjustment(
     return np.clip(result, 0, 1).astype(np.float32)
 
 
+def visualize_semantic_mask(bucket: str, toggle: bool = True) -> tuple[np.ndarray | None, str]:
+    """
+    可视化指定语义区域的遮罩（支持叠加多个区域）
+    
+    Args:
+        bucket: 语义桶名称 (SKY, PERSON, etc.) 或 "FACE" 或 "NONE"
+        toggle: 是否切换该区域的显示状态
+    
+    Returns:
+        (叠加遮罩后的图像, 覆盖率信息)
+    """
+    if _cache["original_image"] is None or _cache["seg_out"] is None:
+        return None, "请先上传并处理图像"
+    
+    # 处理 NONE（清除所有遮罩）
+    if bucket == "NONE":
+        _cache["active_masks"] = set()
+        return _cache["original_image"].copy(), "显示原图"
+    
+    # 切换该区域的激活状态
+    if toggle:
+        if bucket in _cache["active_masks"]:
+            _cache["active_masks"].discard(bucket)
+        else:
+            _cache["active_masks"].add(bucket)
+    
+    # 如果没有激活的遮罩，返回原图
+    if not _cache["active_masks"]:
+        return _cache["original_image"].copy(), "点击区域按钮查看遮罩"
+    
+    import cv2
+    
+    # 获取原图
+    original = _cache["original_image"].copy()
+    H, W = original.shape[:2]
+    result = original.astype(np.float32)
+    
+    info_parts = []
+    
+    # 叠加所有激活的遮罩
+    for active_bucket in _cache["active_masks"]:
+        # 获取遮罩
+        if active_bucket == "FACE":
+            if _cache["face_mask"] is None:
+                continue
+            mask = _cache["face_mask"]
+        else:
+            seg_out = _cache["seg_out"]
+            if active_bucket not in seg_out.semantic_masks:
+                continue
+            mask = seg_out.semantic_masks[active_bucket]
+        
+        # 调整遮罩尺寸到原图大小
+        if mask.shape[:2] != (H, W):
+            mask = cv2.resize(mask, (W, H), interpolation=cv2.INTER_LINEAR)
+        
+        # 计算覆盖率
+        coverage = mask.mean() * 100
+        info_parts.append(f"{active_bucket}: {coverage:.1f}%")
+        
+        # 创建彩色遮罩
+        color = SEMANTIC_COLORS.get(active_bucket, (255, 255, 0))
+        colored_mask = np.zeros((H, W, 3), dtype=np.float32)
+        colored_mask[:, :] = color
+        
+        # 叠加遮罩（半透明）
+        alpha = 0.5
+        mask_3d = np.stack([mask] * 3, axis=-1)
+        result = result * (1 - mask_3d * alpha) + colored_mask * mask_3d * alpha
+        
+        # 添加边界轮廓
+        mask_u8 = (mask * 255).astype(np.uint8)
+        contours, _ = cv2.findContours(mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        result_u8 = np.clip(result, 0, 255).astype(np.uint8)
+        cv2.drawContours(result_u8, contours, -1, color, 2)
+        result = result_u8.astype(np.float32)
+    
+    result = np.clip(result, 0, 255).astype(np.uint8)
+    info = "🎯 " + " | ".join(info_parts) if info_parts else "无激活区域"
+    
+    return result, info
+
+
 def process_image(
     image: np.ndarray,
     # 需要重新推理的参数
@@ -298,13 +408,14 @@ def process_image(
     face_protect_enabled: bool,
     face_protect_mode: str,
     face_gan_weight_max: float,
-    sky_style: str,
-    person_style: str,
-    building_style: str,
-    vegetation_style: str,
-    road_style: str,
-    water_style: str,
-    others_style: str,
+    # 区域风格（风格 + 强度 + K）
+    sky_style: str, sky_strength: float, sky_k: int,
+    person_style: str, person_strength: float, person_k: int,
+    building_style: str, building_strength: float, building_k: int,
+    vegetation_style: str, vegetation_strength: float, vegetation_k: int,
+    road_style: str, road_strength: float, road_k: int,
+    water_style: str, water_strength: float, water_k: int,
+    others_style: str, others_strength: float, others_k: int,
 ) -> np.ndarray | None:
     """完整处理（上传新图像或更改重计算参数时调用）"""
     if image is None:
@@ -322,8 +433,13 @@ def process_image(
         detail_enhance_enabled, detail_strength,
         gamma, contrast, saturation, brightness,
         face_protect_enabled, face_protect_mode, face_gan_weight_max,
-        sky_style, person_style, building_style, vegetation_style,
-        road_style, water_style, others_style,
+        sky_style, sky_strength, sky_k,
+        person_style, person_strength, person_k,
+        building_style, building_strength, building_k,
+        vegetation_style, vegetation_strength, vegetation_k,
+        road_style, road_strength, road_k,
+        water_style, water_strength, water_k,
+        others_style, others_strength, others_k,
     )
 
 
@@ -347,7 +463,27 @@ def create_ui():
         with gr.Row():
             # 左侧：输入和输出
             with gr.Column(scale=2):
-                input_image = gr.Image(label="📷 输入图像", type="numpy")
+                # 语义遮罩可视化按钮（移到顶部）
+                gr.Markdown("**🔍 点击切换语义区域遮罩** *(可叠加多个)*")
+                with gr.Row():
+                    btn_none = gr.Button("🔄 清除", size="sm")
+                    btn_sky = gr.Button("☁️ 天空", size="sm", variant="secondary")
+                    btn_person = gr.Button("👤 人物", size="sm", variant="secondary")
+                    btn_face = gr.Button("😊 人脸", size="sm", variant="secondary")
+                    btn_building = gr.Button("🏠 建筑", size="sm", variant="secondary")
+                with gr.Row():
+                    btn_vegetation = gr.Button("🌳 植被", size="sm", variant="secondary")
+                    btn_road = gr.Button("🛤️ 道路", size="sm", variant="secondary")
+                    btn_water = gr.Button("🌊 水体", size="sm", variant="secondary")
+                    btn_others = gr.Button("📦 其他", size="sm", variant="secondary")
+                
+                mask_info = gr.Textbox(label="", value="上传图像后点击按钮查看语义区域", show_label=False, max_lines=1)
+                
+                # 使用单独的预览组件，不影响 input_image
+                with gr.Row():
+                    input_image = gr.Image(label="📷 输入图像", type="numpy")
+                    mask_preview = gr.Image(label="🔍 语义遮罩预览", type="numpy")
+                
                 output_image = gr.Image(label="🖼️ 输出结果", type="numpy")
                 
                 with gr.Row():
@@ -367,11 +503,13 @@ def create_ui():
                     traditional_smooth_method = gr.Radio(
                         choices=["bilateral", "edge_preserving", "mean_shift"],
                         value="bilateral",
-                        label="平滑方法"
+                        label="平滑方法",
+                        info="bilateral: 双边滤波，保边效果好 | edge_preserving: OpenCV边缘保持 | mean_shift: 均值漂移，色块更明显"
                     )
                     traditional_k = gr.Slider(
                         4, 48, value=16, step=4,
-                        label="颜色量化 K"
+                        label="颜色量化 K",
+                        info="K值越大颜色越丰富，越小色块越明显（推荐8-24）"
                     )
                 
                 # ========== 以下参数支持实时调整 ==========
@@ -382,73 +520,155 @@ def create_ui():
                     fusion_method = gr.Radio(
                         choices=["soft_mask", "laplacian_pyramid", "poisson"],
                         value="soft_mask",
-                        label="融合方法"
+                        label="融合方法",
+                        info="soft_mask: 快速模糊融合 | laplacian_pyramid: 多尺度融合，接缝更自然 | poisson: 泊松融合（实验性）"
                     )
                     fusion_blur_kernel = gr.Slider(
                         5, 51, value=21, step=2,
-                        label="模糊核大小"
+                        label="模糊核大小",
+                        info="控制区域边界的过渡宽度，值越大过渡越平滑"
                     )
                 
                 # ========== 区域风格 ==========
                 with gr.Accordion("🗺️ 区域风格", open=True):
-                    sky_style = gr.Dropdown(choices=style_choices, value="Shinkai", label="☁️ 天空")
-                    person_style = gr.Dropdown(choices=style_choices, value="Traditional", label="👤 人物")
-                    building_style = gr.Dropdown(choices=style_choices, value="Traditional", label="🏠 建筑")
-                    vegetation_style = gr.Dropdown(choices=style_choices, value="Hayao", label="🌳 植被")
-                    road_style = gr.Dropdown(choices=style_choices, value="Traditional", label="🛤️ 道路")
-                    water_style = gr.Dropdown(choices=style_choices, value="Shinkai", label="🌊 水体")
-                    others_style = gr.Dropdown(choices=style_choices, value="Traditional", label="📦 其他")
+                    gr.Markdown("*每个区域可独立设置：风格、强度、K值*")
+                    
+                    # 天空
+                    with gr.Group():
+                        with gr.Row():
+                            sky_style = gr.Dropdown(choices=style_choices, value="Shinkai", label="☁️ 天空",
+                                info="推荐 Shinkai", scale=2)
+                            sky_strength = gr.Slider(0, 1, value=1.0, label="强度", scale=1,
+                                info="0=原图，1=完全风格化")
+                            sky_k = gr.Slider(4, 64, value=16, step=2, label="K", scale=1,
+                                info="Traditional 专用，范围 4-64")
+                    
+                    # 人物
+                    with gr.Group():
+                        with gr.Row():
+                            person_style = gr.Dropdown(choices=style_choices, value="Traditional", label="👤 人物",
+                                info="推荐 Traditional", scale=2)
+                            person_strength = gr.Slider(0, 1, value=0.7, label="强度", scale=1,
+                                info="人物建议0.5-0.8")
+                            person_k = gr.Slider(4, 64, value=20, step=2, label="K", scale=1,
+                                info="Traditional 专用，范围 4-64")
+                    
+                    # 建筑
+                    with gr.Group():
+                        with gr.Row():
+                            building_style = gr.Dropdown(choices=style_choices, value="Traditional", label="🏠 建筑",
+                                info="建筑物风格", scale=2)
+                            building_strength = gr.Slider(0, 1, value=1.0, label="强度", scale=1)
+                            building_k = gr.Slider(4, 64, value=16, step=2, label="K", scale=1,
+                                info="Traditional 专用，范围 4-64")
+                    
+                    # 植被
+                    with gr.Group():
+                        with gr.Row():
+                            vegetation_style = gr.Dropdown(choices=style_choices, value="Hayao", label="🌳 植被",
+                                info="推荐 Hayao", scale=2)
+                            vegetation_strength = gr.Slider(0, 1, value=1.0, label="强度", scale=1)
+                            vegetation_k = gr.Slider(4, 64, value=24, step=2, label="K", scale=1,
+                                info="Traditional 专用，植被建议 K 大一些，范围 4-64")
+                    
+                    # 道路
+                    with gr.Group():
+                        with gr.Row():
+                            road_style = gr.Dropdown(choices=style_choices, value="Traditional", label="🛤️ 道路",
+                                info="道路/地面风格", scale=2)
+                            road_strength = gr.Slider(0, 1, value=1.0, label="强度", scale=1)
+                            road_k = gr.Slider(4, 64, value=12, step=2, label="K", scale=1,
+                                info="Traditional 专用，范围 4-64")
+                    
+                    # 水体
+                    with gr.Group():
+                        with gr.Row():
+                            water_style = gr.Dropdown(choices=style_choices, value="Shinkai", label="🌊 水体",
+                                info="推荐 Shinkai", scale=2)
+                            water_strength = gr.Slider(0, 1, value=1.0, label="强度", scale=1)
+                            water_k = gr.Slider(4, 64, value=16, step=2, label="K", scale=1,
+                                info="Traditional 专用，范围 4-64")
+                    
+                    # 其他
+                    with gr.Group():
+                        with gr.Row():
+                            others_style = gr.Dropdown(choices=style_choices, value="Traditional", label="📦 其他",
+                                info="未分类区域", scale=2)
+                            others_strength = gr.Slider(0, 1, value=1.0, label="强度", scale=1)
+                            others_k = gr.Slider(4, 64, value=16, step=2, label="K", scale=1,
+                                info="Traditional 专用，范围 4-64")
                 
                 # ========== 线稿设置 ==========
                 with gr.Accordion("✏️ 线稿设置", open=True):
-                    edge_strength = gr.Slider(0, 1, value=0.5, label="线稿强度")
-                    line_engine = gr.Radio(choices=["canny", "xdog"], value="canny", label="线稿引擎")
-                    line_width = gr.Slider(1, 5, value=1, step=1, label="线条宽度")
+                    edge_strength = gr.Slider(0, 1, value=0.5, label="线稿强度",
+                        info="0=无线稿，1=最强线稿，推荐0.3-0.6")
+                    line_engine = gr.Radio(choices=["canny", "xdog"], value="canny", label="线稿引擎",
+                        info="canny: 经典边缘检测，稳定 | xdog: 艺术风格线条，更有手绘感")
+                    line_width = gr.Slider(0.5, 4, value=1, step=0.25, label="线条宽度",
+                        info="线条粗细更精细：0.5=极细，2=中等，4=较粗（内部会取整）")
                     
                     with gr.Group():
                         gr.Markdown("**Canny 参数**")
-                        canny_low = gr.Slider(50, 150, value=100, label="低阈值")
-                        canny_high = gr.Slider(100, 300, value=200, label="高阈值")
+                        canny_low = gr.Slider(50, 150, value=100, label="低阈值",
+                            info="边缘检测低阈值，值越低检测到的边缘越多")
+                        canny_high = gr.Slider(100, 300, value=200, label="高阈值",
+                            info="边缘检测高阈值，值越高只保留强边缘")
                     
                     with gr.Group():
                         gr.Markdown("**XDoG 参数**")
-                        xdog_sigma = gr.Slider(0.1, 2.0, value=0.5, label="Sigma")
-                        xdog_k = gr.Slider(1.0, 3.0, value=1.6, label="K")
-                        xdog_p = gr.Slider(5.0, 50.0, value=19.0, label="P")
+                        xdog_sigma = gr.Slider(0.1, 2.0, value=0.5, label="Sigma",
+                            info="高斯模糊程度，值越大线条越粗犷")
+                        xdog_k = gr.Slider(1.0, 3.0, value=1.6, label="K",
+                            info="两个高斯核的比例，影响边缘检测范围")
+                        xdog_p = gr.Slider(5.0, 50.0, value=19.0, label="P",
+                            info="锐化程度，值越大线条对比度越高")
                 
                 # ========== 全局协调 ==========
                 with gr.Accordion("🎨 全局协调", open=False):
-                    harmonization_enabled = gr.Checkbox(value=True, label="启用直方图匹配")
+                    harmonization_enabled = gr.Checkbox(value=True, label="启用直方图匹配",
+                        info="统一各区域的色调，减少拼接感")
                     harmonization_reference = gr.Dropdown(
                         choices=semantic_buckets + ["auto"],
                         value="SKY",
-                        label="参考区域"
+                        label="参考区域",
+                        info="以哪个区域的色调为基准进行统一"
                     )
-                    harmonization_strength = gr.Slider(0, 1, value=0.8, label="匹配强度")
+                    harmonization_strength = gr.Slider(0, 1, value=0.8, label="匹配强度",
+                        info="色调统一的程度，0=不统一，1=完全统一")
                 
                 # ========== 细节增强 ==========
                 with gr.Accordion("🔍 细节增强", open=False):
-                    detail_enhance_enabled = gr.Checkbox(value=False, label="启用 Guided Filter")
-                    detail_strength = gr.Slider(0, 1, value=0.5, label="增强强度")
+                    detail_enhance_enabled = gr.Checkbox(value=False, label="启用 Guided Filter",
+                        info="使用导向滤波增强图像细节和纹理")
+                    detail_strength = gr.Slider(0, 1, value=0.5, label="增强强度",
+                        info="细节增强程度，过高可能产生噪点")
                 
                 # ========== 色调调整 ==========
                 with gr.Accordion("🌈 色调调整", open=False):
-                    gamma = gr.Slider(0.5, 2.0, value=1.0, label="Gamma")
-                    contrast = gr.Slider(0.5, 1.5, value=1.0, label="对比度")
-                    saturation = gr.Slider(0.5, 1.5, value=1.0, label="饱和度")
-                    brightness = gr.Slider(-50, 50, value=0, label="亮度")
+                    gamma = gr.Slider(0.5, 2.0, value=1.0, label="Gamma",
+                        info="<1 变亮，>1 变暗，调整整体明暗")
+                    contrast = gr.Slider(0.5, 1.5, value=1.0, label="对比度",
+                        info="<1 降低对比度，>1 增强对比度")
+                    saturation = gr.Slider(0.5, 1.5, value=1.0, label="饱和度",
+                        info="<1 降低饱和度（偏灰），>1 增强饱和度（更鲜艳）")
+                    brightness = gr.Slider(-50, 50, value=0, label="亮度",
+                        info="直接增减亮度值，负值变暗，正值变亮")
                 
                 # ========== 人脸保护 ==========
                 with gr.Accordion("👤 人脸保护", open=False):
-                    face_protect_enabled = gr.Checkbox(value=True, label="启用人脸保护")
+                    face_protect_enabled = gr.Checkbox(value=True, label="启用人脸保护",
+                        info="保护人脸区域不被过度风格化")
                     face_protect_mode = gr.Radio(
                         choices=["protect", "blend", "full_style"],
                         value="protect",
-                        label="保护模式"
+                        label="保护模式",
+                        info="protect: 最大保护 | blend: 轻微风格化 | full_style: 无保护"
                     )
-                    face_gan_weight_max = gr.Slider(0, 1, value=0.3, label="GAN 权重上限")
+                    face_gan_weight_max = gr.Slider(0, 1, value=0.3, label="GAN 权重上限",
+                        info="人脸区域允许的最大 GAN 风格化强度"
+                    )
         
-        # 所有输入参数列表
+        # 所有输入参数列表（包含区域级 strength 和 k）
         all_inputs = [
             input_image,
             traditional_smooth_method, traditional_k,
@@ -459,8 +679,13 @@ def create_ui():
             detail_enhance_enabled, detail_strength,
             gamma, contrast, saturation, brightness,
             face_protect_enabled, face_protect_mode, face_gan_weight_max,
-            sky_style, person_style, building_style, vegetation_style,
-            road_style, water_style, others_style,
+            sky_style, sky_strength, sky_k,
+            person_style, person_strength, person_k,
+            building_style, building_strength, building_k,
+            vegetation_style, vegetation_strength, vegetation_k,
+            road_style, road_strength, road_k,
+            water_style, water_strength, water_k,
+            others_style, others_strength, others_k,
         ]
         
         # 实时调整参数（不包含 input_image 和 traditional_* ）
@@ -496,8 +721,13 @@ def create_ui():
             detail_enhance_enabled, detail_strength,
             gamma, contrast, saturation, brightness,
             face_protect_enabled, face_protect_mode, face_gan_weight_max,
-            sky_style, person_style, building_style, vegetation_style,
-            road_style, water_style, others_style,
+            sky_style, sky_strength, sky_k,
+            person_style, person_strength, person_k,
+            building_style, building_strength, building_k,
+            vegetation_style, vegetation_strength, vegetation_k,
+            road_style, road_strength, road_k,
+            water_style, water_strength, water_k,
+            others_style, others_strength, others_k,
         ]
         
         for component in realtime_components:
@@ -506,6 +736,17 @@ def create_ui():
                 inputs=realtime_components,
                 outputs=output_image
             )
+        
+        # 语义遮罩可视化按钮绑定（更新单独的预览组件，不影响输入图像）
+        btn_none.click(lambda: visualize_semantic_mask("NONE"), outputs=[mask_preview, mask_info])
+        btn_sky.click(lambda: visualize_semantic_mask("SKY"), outputs=[mask_preview, mask_info])
+        btn_person.click(lambda: visualize_semantic_mask("PERSON"), outputs=[mask_preview, mask_info])
+        btn_face.click(lambda: visualize_semantic_mask("FACE"), outputs=[mask_preview, mask_info])
+        btn_building.click(lambda: visualize_semantic_mask("BUILDING"), outputs=[mask_preview, mask_info])
+        btn_vegetation.click(lambda: visualize_semantic_mask("VEGETATION"), outputs=[mask_preview, mask_info])
+        btn_road.click(lambda: visualize_semantic_mask("ROAD"), outputs=[mask_preview, mask_info])
+        btn_water.click(lambda: visualize_semantic_mask("WATER"), outputs=[mask_preview, mask_info])
+        btn_others.click(lambda: visualize_semantic_mask("OTHERS"), outputs=[mask_preview, mask_info])
         
         gr.Markdown("""
         ---

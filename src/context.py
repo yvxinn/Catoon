@@ -94,7 +94,8 @@ class RegionConfig:
     """单个区域的风格配置"""
     
     style_id: str              # 使用的风格 ID
-    mix_weight: float = 1.0    # 混合权重
+    strength: float = 1.0      # 风格化强度 0~1（0=原图，1=完全风格化）
+    mix_weight: float = 1.0    # 混合权重（用于多风格混合）
     
     # Toon 参数（用于传统风格化）
     toon_K: int = 16           # KMeans 颜色数量

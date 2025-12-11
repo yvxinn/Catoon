@@ -104,6 +104,7 @@ logs/
 # Cache
 .cache/
 *.cache
+examples/
 
 # OS
 .DS_Store

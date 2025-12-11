@@ -59,16 +59,18 @@ class SemanticRouter:
             
             # 合并配置
             style_id = override.get("style", preset.get("style", "Traditional"))
+            strength = override.get("strength", preset.get("strength", 1.0))
             mix_weight = override.get("weight", preset.get("mix_weight", 1.0))
             
-            # 获取 toon 参数
+            # 获取 toon 参数（支持 UI 覆盖）
             toon_params = preset.get("toon_params", {})
-            toon_K = toon_params.get("K", 16)
+            toon_K = override.get("k", toon_params.get("K", 16))
             smooth_strength = toon_params.get("smooth_strength", 0.6)
             edge_strength = toon_params.get("edge_strength", 0.5)
             
             region_configs[bucket_name] = RegionConfig(
                 style_id=style_id,
+                strength=strength,
                 mix_weight=mix_weight,
                 toon_K=toon_K,
                 smooth_strength=smooth_strength,
@@ -138,6 +140,7 @@ class SemanticRouter:
             # 更新 PERSON 配置
             region_configs["PERSON"] = RegionConfig(
                 style_id=face_style,
+                strength=min(person_config.strength, gan_weight_max),
                 mix_weight=min(person_config.mix_weight, gan_weight_max),
                 toon_K=person_config.toon_K,
                 smooth_strength=person_config.smooth_strength,
@@ -153,6 +156,7 @@ class SemanticRouter:
             
             region_configs["PERSON"] = RegionConfig(
                 style_id=person_config.style_id,
+                strength=min(person_config.strength, gan_weight_max + 0.3),
                 mix_weight=min(person_config.mix_weight, gan_weight_max + 0.3),
                 toon_K=person_config.toon_K,
                 smooth_strength=person_config.smooth_strength * 0.7,  # 降低平滑

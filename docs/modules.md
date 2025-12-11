@@ -151,6 +151,47 @@ class StyleCandidate:
 
 **颜色量化**：MiniBatchKMeans，默认 K=16
 
+### C3: 区域级风格化器 (RegionStylizer) - 新增
+
+**职责**：为每个语义区域生成独立的风格化图像，支持不同的 K 值
+
+**优化策略**：
+1. **懒加载**：仅在需要时生成区域风格
+2. **缓存**：相同参数的区域风格被缓存（key = region + style + K）
+3. **并行**：多线程处理 CPU 密集型操作
+4. **增量**：只重新生成参数变化的区域
+
+**接口**：
+```python
+class RegionStylizer:
+    def generate_region_styles(
+        self,
+        image_f32: np.ndarray,
+        image_hash: str,
+        seg_out: SegmentationOutput,
+        region_configs: dict[str, RegionConfig],
+        global_candidates: dict[str, StyleCandidate] | None = None
+    ) -> dict[str, StyleCandidate]
+    
+    def clear_cache(self) -> None
+    def get_cache_stats(self) -> dict
+```
+
+**工作流程**：
+```
+1. 检查图像哈希 → 变化则清空缓存
+2. 遍历区域配置：
+   - 生成 cache_key = f"{region}_{style}_K{k}"
+   - 命中缓存 → 直接返回
+   - 未命中 → 加入待生成队列
+3. 并行/串行生成待处理区域
+4. 更新缓存并返回
+```
+
+**缓存策略**：
+- Traditional 风格：`{region}_{style}_K{k}_S{smooth}` （K 值影响输出）
+- GAN 风格：`{region}_{style}` （直接复用全局候选）
+
 ---
 
 ## D. 语义路由模块 (Semantic Routing)
@@ -205,10 +246,15 @@ class RoutingPlan:
 ### 职责
 - 将不同区域对应的候选风格图融合为一张 base 图
 - 解决 halo/接缝伪影
+- **支持区域级 strength 参数**（与原图混合）
 
 ### E1: 基础融合（默认）
 ```python
-Base = sum(M_c' * S_{j_c}) / (sum(M_c') + eps)
+# 对每个区域应用 strength 混合
+region_styled = original * (1 - strength) + styled * strength
+
+# 然后进行 soft mask 融合
+Base = sum(M_c' * region_styled_c) / (sum(M_c') + eps)
 ```
 soft mask 推荐：Gaussian blur (kernel 15~31) 或 distance transform
 
@@ -216,6 +262,7 @@ soft mask 推荐：Gaussian blur (kernel 15~31) 或 distance transform
 Laplacian pyramid / multiband blending
 - 将候选图分解成多尺度 Laplacian 金字塔
 - 在每个频段按 soft mask 融合
+- **同样支持 strength 参数**
 
 ### E3: Poisson / seamlessClone
 仅用于 boundary band 或局部 ROI（全图多区域太慢）
@@ -228,8 +275,25 @@ class FusionModule:
         candidates: dict[str, StyleCandidate],
         routing: RoutingPlan,
         seg_out: SegmentationOutput,
-        method: str = "soft_mask"  # soft_mask | laplacian_pyramid | poisson
+        method: str = "soft_mask",  # soft_mask | laplacian_pyramid | poisson
+        blur_kernel: int | None = None,
+        original_image: np.ndarray | None = None  # 用于 strength 混合
     ) -> np.ndarray
+```
+
+### 区域级参数支持
+
+通过 `RegionConfig.strength` 和 `RegionConfig.toon_K` 实现：
+
+```python
+@dataclass
+class RegionConfig:
+    style_id: str              # 使用的风格 ID
+    strength: float = 1.0      # 风格化强度 0~1（0=原图，1=完全风格化）
+    mix_weight: float = 1.0    # 混合权重
+    toon_K: int = 16           # KMeans 颜色数量（Traditional 专用）
+    smooth_strength: float = 0.6
+    edge_strength: float = 0.5
 ```
 
 ---

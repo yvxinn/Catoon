@@ -28,15 +28,19 @@ class SoftMaskFusion:
         self,
         candidates: dict[str, StyleCandidate],
         routing: RoutingPlan,
-        seg_out: SegmentationOutput
+        seg_out: SegmentationOutput,
+        original_image: np.ndarray | None = None,
+        region_candidates: dict[str, StyleCandidate] | None = None
     ) -> np.ndarray:
         """
         执行 soft mask 融合
         
         Args:
-            candidates: {style_id: StyleCandidate} 候选字典
+            candidates: {style_id: StyleCandidate} 全局候选字典
             routing: 路由计划
             seg_out: 分割输出
+            original_image: 原图 float32 (H,W,3)，用于 strength 混合
+            region_candidates: {region_name: StyleCandidate} 区域级候选（优先使用）
         
         Returns:
             融合后的图像 float32 (H,W,3) [0,1]
@@ -62,22 +66,33 @@ class SoftMaskFusion:
             # 应用权重
             soft_mask = soft_mask * config.mix_weight
             
-            # 获取该区域使用的风格候选
-            style_id = config.style_id
-            candidate = candidates.get(style_id)
-            
-            if candidate is None:
-                # 如果找不到指定风格，使用 Traditional
-                candidate = candidates.get("Traditional")
+            # 优先使用区域级候选
+            candidate = None
+            if region_candidates and region_name in region_candidates:
+                candidate = region_candidates[region_name]
+            else:
+                # 回退到全局候选
+                style_id = config.style_id
+                candidate = candidates.get(style_id)
+                if candidate is None:
+                    candidate = candidates.get("Traditional")
             
             if candidate is None:
                 continue
+            
+            # 获取风格化图像
+            styled_image = candidate.image
+            
+            # 应用 strength 参数：混合原图和风格化图像
+            if original_image is not None and config.strength < 1.0:
+                strength = config.strength
+                styled_image = original_image * (1 - strength) + styled_image * strength
             
             # 扩展 mask 维度用于广播
             mask_3d = soft_mask[:, :, np.newaxis]
             
             # 累加
-            weighted_sum += mask_3d * candidate.image
+            weighted_sum += mask_3d * styled_image
             weight_sum += mask_3d
         
         # 归一化
@@ -86,7 +101,7 @@ class SoftMaskFusion:
         # 处理人脸保护区域
         if routing.face_protection_mask is not None:
             fused = self._apply_face_protection(
-                fused, candidates, routing
+                fused, candidates, routing, original_image
             )
         
         # Clamp 到 [0, 1]
@@ -122,7 +137,8 @@ class SoftMaskFusion:
         self,
         fused: np.ndarray,
         candidates: dict[str, StyleCandidate],
-        routing: RoutingPlan
+        routing: RoutingPlan,
+        original_image: np.ndarray | None = None
     ) -> np.ndarray:
         """
         应用人脸保护
@@ -131,6 +147,7 @@ class SoftMaskFusion:
             fused: 融合后的图像
             candidates: 候选字典
             routing: 路由计划
+            original_image: 原图，用于 strength 混合
         
         Returns:
             应用人脸保护后的图像
@@ -151,12 +168,20 @@ class SoftMaskFusion:
         if face_candidate is None:
             return fused
         
+        # 获取风格化图像
+        face_styled = face_candidate.image
+        
+        # 应用 strength 参数
+        if original_image is not None and person_config.strength < 1.0:
+            strength = person_config.strength
+            face_styled = original_image * (1 - strength) + face_styled * strength
+        
         # 生成 soft face mask
         soft_face_mask = self._make_soft_mask(face_mask)
         mask_3d = soft_face_mask[:, :, np.newaxis]
         
         # 在人脸区域混合
-        fused = fused * (1 - mask_3d) + face_candidate.image * mask_3d
+        fused = fused * (1 - mask_3d) + face_styled * mask_3d
         
         return fused
 

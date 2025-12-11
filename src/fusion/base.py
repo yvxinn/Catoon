@@ -54,17 +54,21 @@ class FusionModule:
         routing: RoutingPlan,
         seg_out: SegmentationOutput,
         method: str | None = None,
-        blur_kernel: int | None = None
+        blur_kernel: int | None = None,
+        original_image: np.ndarray | None = None,
+        region_candidates: dict[str, StyleCandidate] | None = None
     ) -> np.ndarray:
         """
         融合候选图像
         
         Args:
-            candidates: {style_id: StyleCandidate} 候选字典
+            candidates: {style_id: StyleCandidate} 全局候选字典
             routing: 路由计划
             seg_out: 分割输出
             method: 融合方法，默认使用配置
             blur_kernel: 模糊核大小，动态覆盖
+            original_image: 原图 float32，用于 strength 混合
+            region_candidates: {region_name: StyleCandidate} 区域级候选（优先使用）
         
         Returns:
             融合后的图像 float32 (H,W,3) [0,1]
@@ -78,24 +82,24 @@ class FusionModule:
         
         if method == "soft_mask":
             return self.soft_mask_fuser.fuse(
-                candidates, routing, seg_out
+                candidates, routing, seg_out, original_image, region_candidates
             )
         
         elif method == "laplacian_pyramid":
             return self.pyramid_fuser.fuse(
-                candidates, routing, seg_out
+                candidates, routing, seg_out, original_image, region_candidates
             )
         
         elif method == "poisson":
             # TODO: Phase 3 实现
             # 暂时 fallback 到 pyramid
             return self.pyramid_fuser.fuse(
-                candidates, routing, seg_out
+                candidates, routing, seg_out, original_image, region_candidates
             )
         
         else:
             # 默认使用 soft_mask
             return self.soft_mask_fuser.fuse(
-                candidates, routing, seg_out
+                candidates, routing, seg_out, original_image, region_candidates
             )
 

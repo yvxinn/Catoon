@@ -52,8 +52,10 @@ class CannyLineart:
         edges = cv2.Canny(gray, self.low_threshold, self.high_threshold)
         
         # 调整线条宽度
-        if self.line_width > 1:
-            kernel = np.ones((self.line_width, self.line_width), np.uint8)
+        # 线宽支持浮点，取整后再膨胀
+        int_width = max(1, int(round(self.line_width)))
+        if int_width > 1:
+            kernel = np.ones((int_width, int_width), np.uint8)
             edges = cv2.dilate(edges, kernel, iterations=1)
         
         # 转为 float32 [0, 1]

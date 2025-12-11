@@ -33,6 +33,7 @@ class CartoonPipeline:
         self._segmenter = None
         self._face_detector = None
         self._stylizers = None
+        self._region_stylizer = None  # 新增：区域级风格化器
         self._router = None
         self._fuser = None
         self._harmonizer = None
@@ -72,6 +73,14 @@ class CartoonPipeline:
             from .stylizers import init_stylizers
             self._stylizers = init_stylizers(self.cfg)
         return self._stylizers
+    
+    @property
+    def region_stylizer(self):
+        """区域级风格化器（懒加载）"""
+        if self._region_stylizer is None:
+            from .stylizers.region_stylizer import RegionStylizer
+            self._region_stylizer = RegionStylizer(self.cfg, self.stylizers)
+        return self._region_stylizer
     
     @property
     def router(self):
@@ -155,13 +164,26 @@ class CartoonPipeline:
             ui_overrides=ui_params
         )
         
-        # E. 区域融合
+        # C2. 区域级风格化（按需生成，带缓存）
+        region_candidates = None
+        if ui_params.get("enable_region_k", True):
+            region_candidates = self.region_stylizer.generate_region_styles(
+                image_f32=ctx.image_f32,
+                image_hash=ctx.image_hash,
+                seg_out=seg_out,
+                region_configs=routing.region_configs,
+                global_candidates=candidates
+            )
+        
+        # E. 区域融合（传递原图用于 strength 混合）
         fused = self.fuser.fuse(
             candidates=candidates,
             routing=routing,
             seg_out=seg_out,
             method=ui_params.get("fusion_method", self.cfg.fusion.default_method),
-            blur_kernel=ui_params.get("fusion_blur_kernel")
+            blur_kernel=ui_params.get("fusion_blur_kernel"),
+            original_image=ctx.image_f32,
+            region_candidates=region_candidates
         )
         
         # F. 全局协调

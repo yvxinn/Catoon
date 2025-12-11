@@ -37,6 +37,11 @@ stylizers:
     bilateral_sigma_space: 75
     default_K: 16  # KMeans 颜色数量
 
+# 区域级风格化配置
+region_stylizer:
+  enable_parallel: true   # 是否启用并行处理
+  max_workers: 4          # 最大并行线程数
+
 # 区域融合配置
 fusion:
   default_method: "soft_mask"  # soft_mask | laplacian_pyramid | poisson

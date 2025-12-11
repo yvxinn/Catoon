@@ -85,8 +85,10 @@ class XDoGLineart:
         edges = np.clip(edges, 0, 1)
         
         # 调整线条宽度
-        if self.line_width > 1:
-            kernel = np.ones((self.line_width, self.line_width), np.uint8)
+        # 线宽支持浮点，取整后再膨胀
+        int_width = max(1, int(round(self.line_width)))
+        if int_width > 1:
+            kernel = np.ones((int_width, int_width), np.uint8)
             edges_u8 = (edges * 255).astype(np.uint8)
             edges_u8 = cv2.dilate(edges_u8, kernel, iterations=1)
             edges = edges_u8.astype(np.float32) / 255.0
