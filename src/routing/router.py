@@ -68,13 +68,35 @@ class SemanticRouter:
             smooth_strength = toon_params.get("smooth_strength", 0.6)
             edge_strength = toon_params.get("edge_strength", 0.5)
             
+            # 获取后期处理参数（支持 UI 覆盖）
+            lineart_strength = override.get("lineart_strength", toon_params.get("lineart_strength", 0.5))
+            detail_enhance = override.get("detail_enhance", toon_params.get("detail_enhance", 0.0))
+            
+            # 获取线稿引擎参数（支持 UI 覆盖）
+            line_engine = override.get("line_engine", toon_params.get("line_engine", "canny"))
+            line_width = override.get("line_width", toon_params.get("line_width", 1.0))
+            canny_low = override.get("canny_low", toon_params.get("canny_low", 100))
+            canny_high = override.get("canny_high", toon_params.get("canny_high", 200))
+            xdog_sigma = override.get("xdog_sigma", toon_params.get("xdog_sigma", 0.5))
+            xdog_k = override.get("xdog_k", toon_params.get("xdog_k", 1.6))
+            xdog_p = override.get("xdog_p", toon_params.get("xdog_p", 19.0))
+            
             region_configs[bucket_name] = RegionConfig(
                 style_id=style_id,
                 strength=strength,
                 mix_weight=mix_weight,
                 toon_K=toon_K,
                 smooth_strength=smooth_strength,
-                edge_strength=edge_strength
+                edge_strength=edge_strength,
+                lineart_strength=lineart_strength,
+                detail_enhance=detail_enhance,
+                line_engine=line_engine,
+                line_width=line_width,
+                canny_low=canny_low,
+                canny_high=canny_high,
+                xdog_sigma=xdog_sigma,
+                xdog_k=xdog_k,
+                xdog_p=xdog_p
             )
         
         # 处理人脸保护
@@ -137,14 +159,23 @@ class SemanticRouter:
                 self.face_policy.get("gan_weight_max", 0.3)
             )
             
-            # 更新 PERSON 配置
+            # 更新 PERSON 配置（保留所有线稿参数）
             region_configs["PERSON"] = RegionConfig(
                 style_id=face_style,
                 strength=min(person_config.strength, gan_weight_max),
                 mix_weight=min(person_config.mix_weight, gan_weight_max),
                 toon_K=person_config.toon_K,
                 smooth_strength=person_config.smooth_strength,
-                edge_strength=person_config.edge_strength
+                edge_strength=person_config.edge_strength,
+                lineart_strength=person_config.lineart_strength,
+                detail_enhance=person_config.detail_enhance,
+                line_engine=person_config.line_engine,
+                line_width=person_config.line_width,
+                canny_low=person_config.canny_low,
+                canny_high=person_config.canny_high,
+                xdog_sigma=person_config.xdog_sigma,
+                xdog_k=person_config.xdog_k,
+                xdog_p=person_config.xdog_p
             )
         
         elif mode == "blend":
@@ -160,7 +191,16 @@ class SemanticRouter:
                 mix_weight=min(person_config.mix_weight, gan_weight_max + 0.3),
                 toon_K=person_config.toon_K,
                 smooth_strength=person_config.smooth_strength * 0.7,  # 降低平滑
-                edge_strength=person_config.edge_strength
+                edge_strength=person_config.edge_strength,
+                lineart_strength=person_config.lineart_strength,
+                detail_enhance=person_config.detail_enhance,
+                line_engine=person_config.line_engine,
+                line_width=person_config.line_width,
+                canny_low=person_config.canny_low,
+                canny_high=person_config.canny_high,
+                xdog_sigma=person_config.xdog_sigma,
+                xdog_k=person_config.xdog_k,
+                xdog_p=person_config.xdog_p
             )
     
     def get_style_for_region(

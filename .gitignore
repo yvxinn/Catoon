@@ -74,7 +74,7 @@ venv.bak/
 # pyenv
 .python-version
 
-# Model weights (download separately)
+# Model weights
 weights/
 *.onnx
 *.pt

@@ -97,17 +97,19 @@ def init_stylizers(cfg: DictConfig) -> dict[str, BaseStylizer]:
     trad_stylizer = TraditionalStylizer("Traditional", cfg)
     stylizers["Traditional"] = trad_stylizer
     
-    # 初始化 AnimeGAN 风格化器（Phase 2）
+    # 初始化 AnimeGAN 风格化器（Phase 2，可关闭）
+    gan_enabled = cfg.stylizers.get("enable_gan", True)
     gan_configs = cfg.stylizers.get("gan", [])
-    for gan_cfg in gan_configs:
-        try:
-            style_name = gan_cfg.name
-            if style_name in AnimeGANStylizer.AVAILABLE_STYLES:
-                stylizer = AnimeGANStylizer(style_name, cfg)
-                stylizers[style_name] = stylizer
-                print(f"[Stylizers] Initialized {style_name} stylizer")
-        except Exception as e:
-            print(f"[Stylizers] Failed to init {gan_cfg.name}: {e}")
+    if gan_enabled:
+        for gan_cfg in gan_configs:
+            try:
+                style_name = gan_cfg.name
+                if style_name in AnimeGANStylizer.AVAILABLE_STYLES:
+                    stylizer = AnimeGANStylizer(style_name, cfg)
+                    stylizers[style_name] = stylizer
+                    print(f"[Stylizers] Initialized {style_name} stylizer")
+            except Exception as e:
+                print(f"[Stylizers] Failed to init {getattr(gan_cfg, 'name', 'unknown')}: {e}")
     
     return stylizers
 

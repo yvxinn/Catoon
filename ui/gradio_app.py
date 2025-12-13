@@ -24,9 +24,11 @@ _cache = {
     "seg_out": None,
     "face_mask": None,
     "candidates": None,
-    "trad_params": None,  # (k, smooth_method)
+    "trad_params": None,  # (k, smooth_method, use_diffusion)
     "original_image": None,  # 原图用于遮罩可视化
     "active_masks": set(),   # 当前激活的语义遮罩（用于叠加）
+    "use_diffusion": False,  # 是否启用 Diffusion
+    "last_render_args": None,  # 上次渲染参数（防止重复渲染）
 }
 
 # 语义区域颜色映射（更鲜艳的颜色）
@@ -77,24 +79,29 @@ def _needs_full_recompute(
 def full_compute(
     image: np.ndarray,
     traditional_smooth_method: str,
-    traditional_k: int
+    traditional_k: int,
+    use_diffusion: bool = False
 ):
     """
     完整计算（需要模型推理）
     缓存：预处理结果、分割结果、人脸检测、风格候选
+    
+    Args:
+        use_diffusion: 是否启用 Diffusion 风格化，若为 False 或 Diffusion 不可用则降级为传统方法
     """
     if image is None:
         return
     
     pipe = get_pipeline()
     img_hash = _compute_image_hash(image)
-    trad_params = (traditional_k, traditional_smooth_method)
+    trad_params = (traditional_k, traditional_smooth_method, use_diffusion)
     
     # 检查是否需要重新计算
     if _cache["image_hash"] == img_hash and _cache["trad_params"] == trad_params:
         return  # 使用缓存
     
     print("[Pipeline] 执行完整计算...")
+    print(f"[Pipeline] Diffusion 模式: {'启用' if use_diffusion else '关闭'}")
     
     # A. 预处理
     ctx = pipe.preprocessor.process(image)
@@ -108,9 +115,26 @@ def full_compute(
     # C. 风格候选生成
     ui_params = {
         "traditional_k": traditional_k,
-        "traditional_smooth_method": traditional_smooth_method
+        "traditional_smooth_method": traditional_smooth_method,
+        "use_diffusion": use_diffusion  # 传递 Diffusion 开关
     }
-    candidates = pipe._get_or_build_candidates(ctx, ui_params)
+    
+    # 先生成边缘图和传统风格候选
+    edge_map = pipe._get_or_build_edge_map(ctx, ui_params)
+    trad_candidate = pipe._get_or_build_traditional(ctx, ui_params)
+    
+    # 根据 use_diffusion 决定是否生成 Diffusion 候选
+    if use_diffusion:
+        try:
+            candidates = pipe._get_or_build_candidates(ctx, edge_map, trad_candidate, ui_params)
+            print("[Pipeline] Diffusion 候选生成完成")
+        except Exception as e:
+            print(f"[Pipeline] Diffusion 生成失败，降级为传统方法: {e}")
+            candidates = {"Traditional": trad_candidate}
+    else:
+        # 不使用 Diffusion，只使用传统方法
+        candidates = {"Traditional": trad_candidate}
+        print("[Pipeline] 使用传统方法（Diffusion 已关闭）")
     
     # 更新缓存
     _cache["image_hash"] = img_hash
@@ -121,6 +145,7 @@ def full_compute(
     _cache["trad_params"] = trad_params
     _cache["original_image"] = image.copy()
     _cache["active_masks"] = set()  # 重置激活的遮罩
+    _cache["use_diffusion"] = use_diffusion  # 缓存 Diffusion 状态
     
     print("[Pipeline] 完整计算完成，已缓存中间结果")
 
@@ -133,7 +158,7 @@ def realtime_render(
     harmonization_enabled: bool,
     harmonization_reference: str,
     harmonization_strength: float,
-    # 线稿
+    # 线稿（全局默认，已弃用但保持兼容）
     edge_strength: float,
     line_engine: str,
     line_width: int,
@@ -142,7 +167,7 @@ def realtime_render(
     xdog_sigma: float,
     xdog_k: float,
     xdog_p: float,
-    # 细节增强
+    # 细节增强（全局默认，已弃用但保持兼容）
     detail_enhance_enabled: bool,
     detail_strength: float,
     # 色调
@@ -154,14 +179,21 @@ def realtime_render(
     face_protect_enabled: bool,
     face_protect_mode: str,
     face_gan_weight_max: float,
-    # 区域风格（风格 + 强度 + K）
-    sky_style: str, sky_strength: float, sky_k: int,
-    person_style: str, person_strength: float, person_k: int,
-    building_style: str, building_strength: float, building_k: int,
-    vegetation_style: str, vegetation_strength: float, vegetation_k: int,
-    road_style: str, road_strength: float, road_k: int,
-    water_style: str, water_strength: float, water_k: int,
-    others_style: str, others_strength: float, others_k: int,
+    # 区域风格（风格 + 强度 + K + 线稿强度 + 细节 + 线稿引擎参数）
+    sky_style: str, sky_strength: float, sky_k: int, sky_lineart: float, sky_detail: float,
+    sky_line_engine: str, sky_line_width: float, sky_canny_low: int, sky_canny_high: int, sky_xdog_sigma: float, sky_xdog_k: float, sky_xdog_p: float,
+    person_style: str, person_strength: float, person_k: int, person_lineart: float, person_detail: float,
+    person_line_engine: str, person_line_width: float, person_canny_low: int, person_canny_high: int, person_xdog_sigma: float, person_xdog_k: float, person_xdog_p: float,
+    building_style: str, building_strength: float, building_k: int, building_lineart: float, building_detail: float,
+    building_line_engine: str, building_line_width: float, building_canny_low: int, building_canny_high: int, building_xdog_sigma: float, building_xdog_k: float, building_xdog_p: float,
+    vegetation_style: str, vegetation_strength: float, vegetation_k: int, vegetation_lineart: float, vegetation_detail: float,
+    vegetation_line_engine: str, vegetation_line_width: float, vegetation_canny_low: int, vegetation_canny_high: int, vegetation_xdog_sigma: float, vegetation_xdog_k: float, vegetation_xdog_p: float,
+    road_style: str, road_strength: float, road_k: int, road_lineart: float, road_detail: float,
+    road_line_engine: str, road_line_width: float, road_canny_low: int, road_canny_high: int, road_xdog_sigma: float, road_xdog_k: float, road_xdog_p: float,
+    water_style: str, water_strength: float, water_k: int, water_lineart: float, water_detail: float,
+    water_line_engine: str, water_line_width: float, water_canny_low: int, water_canny_high: int, water_xdog_sigma: float, water_xdog_k: float, water_xdog_p: float,
+    others_style: str, others_strength: float, others_k: int, others_lineart: float, others_detail: float,
+    others_line_engine: str, others_line_width: float, others_canny_low: int, others_canny_high: int, others_xdog_sigma: float, others_xdog_k: float, others_xdog_p: float,
 ) -> np.ndarray | None:
     """
     实时渲染（不重新推理，直接使用缓存）
@@ -200,13 +232,55 @@ def realtime_render(
         "face_protect_mode": face_protect_mode,
         "face_gan_weight_max": face_gan_weight_max,
         "region_overrides": {
-            "SKY": {"style": sky_style, "strength": sky_strength, "k": int(sky_k)},
-            "PERSON": {"style": person_style, "strength": person_strength, "k": int(person_k)},
-            "BUILDING": {"style": building_style, "strength": building_strength, "k": int(building_k)},
-            "VEGETATION": {"style": vegetation_style, "strength": vegetation_strength, "k": int(vegetation_k)},
-            "ROAD": {"style": road_style, "strength": road_strength, "k": int(road_k)},
-            "WATER": {"style": water_style, "strength": water_strength, "k": int(water_k)},
-            "OTHERS": {"style": others_style, "strength": others_strength, "k": int(others_k)},
+            "SKY": {
+                "style": sky_style, "strength": sky_strength, "k": int(sky_k),
+                "lineart_strength": sky_lineart, "detail_enhance": sky_detail,
+                "line_engine": sky_line_engine, "line_width": sky_line_width,
+                "canny_low": int(sky_canny_low), "canny_high": int(sky_canny_high),
+                "xdog_sigma": sky_xdog_sigma, "xdog_k": sky_xdog_k, "xdog_p": sky_xdog_p
+            },
+            "PERSON": {
+                "style": person_style, "strength": person_strength, "k": int(person_k),
+                "lineart_strength": person_lineart, "detail_enhance": person_detail,
+                "line_engine": person_line_engine, "line_width": person_line_width,
+                "canny_low": int(person_canny_low), "canny_high": int(person_canny_high),
+                "xdog_sigma": person_xdog_sigma, "xdog_k": person_xdog_k, "xdog_p": person_xdog_p
+            },
+            "BUILDING": {
+                "style": building_style, "strength": building_strength, "k": int(building_k),
+                "lineart_strength": building_lineart, "detail_enhance": building_detail,
+                "line_engine": building_line_engine, "line_width": building_line_width,
+                "canny_low": int(building_canny_low), "canny_high": int(building_canny_high),
+                "xdog_sigma": building_xdog_sigma, "xdog_k": building_xdog_k, "xdog_p": building_xdog_p
+            },
+            "VEGETATION": {
+                "style": vegetation_style, "strength": vegetation_strength, "k": int(vegetation_k),
+                "lineart_strength": vegetation_lineart, "detail_enhance": vegetation_detail,
+                "line_engine": vegetation_line_engine, "line_width": vegetation_line_width,
+                "canny_low": int(vegetation_canny_low), "canny_high": int(vegetation_canny_high),
+                "xdog_sigma": vegetation_xdog_sigma, "xdog_k": vegetation_xdog_k, "xdog_p": vegetation_xdog_p
+            },
+            "ROAD": {
+                "style": road_style, "strength": road_strength, "k": int(road_k),
+                "lineart_strength": road_lineart, "detail_enhance": road_detail,
+                "line_engine": road_line_engine, "line_width": road_line_width,
+                "canny_low": int(road_canny_low), "canny_high": int(road_canny_high),
+                "xdog_sigma": road_xdog_sigma, "xdog_k": road_xdog_k, "xdog_p": road_xdog_p
+            },
+            "WATER": {
+                "style": water_style, "strength": water_strength, "k": int(water_k),
+                "lineart_strength": water_lineart, "detail_enhance": water_detail,
+                "line_engine": water_line_engine, "line_width": water_line_width,
+                "canny_low": int(water_canny_low), "canny_high": int(water_canny_high),
+                "xdog_sigma": water_xdog_sigma, "xdog_k": water_xdog_k, "xdog_p": water_xdog_p
+            },
+            "OTHERS": {
+                "style": others_style, "strength": others_strength, "k": int(others_k),
+                "lineart_strength": others_lineart, "detail_enhance": others_detail,
+                "line_engine": others_line_engine, "line_width": others_line_width,
+                "canny_low": int(others_canny_low), "canny_high": int(others_canny_high),
+                "xdog_sigma": others_xdog_sigma, "xdog_k": others_xdog_k, "xdog_p": others_xdog_p
+            },
         }
     }
     
@@ -244,13 +318,44 @@ def realtime_render(
         )
         fused = pipe.harmonizer.match_and_adjust(fused, ref, ui_params)
     
-    # G. 线稿叠加（轻量）
-    if edge_strength > 1e-3:
-        edges = pipe.lineart.extract(ctx.image_u8, ui_params)
+    # G. 线稿叠加 - 使用语义路由（从风格化后的图像提取边缘）
+    # 检查是否有任何区域需要线稿
+    has_lineart = any(
+        routing.region_configs.get(bucket, None) and 
+        getattr(routing.region_configs.get(bucket), "lineart_strength", 0) > 0.01
+        for bucket in seg_out.semantic_masks.keys()
+    )
+    
+    if has_lineart:
+        # 使用语义路由的区域级线稿叠加
+        fused = pipe.lineart.overlay_with_semantic_routing(
+            image=fused,
+            semantic_masks=seg_out.semantic_masks,
+            region_configs=routing.region_configs,
+            params=ui_params
+        )
+    elif edge_strength > 1e-3:
+        # 回退到全局线稿（从风格化后图像提取）
+        edges = pipe.lineart.extract_from_stylized(fused, ui_params)
         fused = pipe.lineart.overlay(fused, edges, edge_strength, ui_params)
     
-    # G2. 细节增强（轻量）
-    if detail_enhance_enabled:
+    # G2. 细节增强 - 使用语义路由
+    has_detail = any(
+        routing.region_configs.get(bucket, None) and 
+        getattr(routing.region_configs.get(bucket), "detail_enhance", 0) > 0.01
+        for bucket in seg_out.semantic_masks.keys()
+    )
+    
+    if has_detail:
+        # 使用语义路由的区域级细节增强
+        fused = pipe.lineart.enhance_detail_with_semantic_routing(
+            image=fused,
+            guide=ctx.image_f32,
+            semantic_masks=seg_out.semantic_masks,
+            region_configs=routing.region_configs
+        )
+    elif detail_enhance_enabled:
+        # 回退到全局细节增强
         fused = pipe.lineart.enhance_detail(fused, ctx.image_f32, detail_strength)
     
     # 色调调整（轻量）
@@ -336,8 +441,9 @@ def visualize_semantic_mask(bucket: str, toggle: bool = True) -> tuple[np.ndarra
     
     info_parts = []
     
-    # 叠加所有激活的遮罩
-    for active_bucket in _cache["active_masks"]:
+    # 叠加所有激活的遮罩（创建副本避免并发修改问题）
+    active_masks_copy = set(_cache["active_masks"])
+    for active_bucket in active_masks_copy:
         # 获取遮罩
         if active_bucket == "FACE":
             if _cache["face_mask"] is None:
@@ -383,6 +489,7 @@ def visualize_semantic_mask(bucket: str, toggle: bool = True) -> tuple[np.ndarra
 def process_image(
     image: np.ndarray,
     # 需要重新推理的参数
+    use_diffusion: bool,
     traditional_smooth_method: str,
     traditional_k: int,
     # 实时参数
@@ -408,21 +515,28 @@ def process_image(
     face_protect_enabled: bool,
     face_protect_mode: str,
     face_gan_weight_max: float,
-    # 区域风格（风格 + 强度 + K）
-    sky_style: str, sky_strength: float, sky_k: int,
-    person_style: str, person_strength: float, person_k: int,
-    building_style: str, building_strength: float, building_k: int,
-    vegetation_style: str, vegetation_strength: float, vegetation_k: int,
-    road_style: str, road_strength: float, road_k: int,
-    water_style: str, water_strength: float, water_k: int,
-    others_style: str, others_strength: float, others_k: int,
+    # 区域风格（风格 + 强度 + K + 线稿强度 + 细节 + 线稿引擎参数）
+    sky_style: str, sky_strength: float, sky_k: int, sky_lineart: float, sky_detail: float,
+    sky_line_engine: str, sky_line_width: float, sky_canny_low: int, sky_canny_high: int, sky_xdog_sigma: float, sky_xdog_k: float, sky_xdog_p: float,
+    person_style: str, person_strength: float, person_k: int, person_lineart: float, person_detail: float,
+    person_line_engine: str, person_line_width: float, person_canny_low: int, person_canny_high: int, person_xdog_sigma: float, person_xdog_k: float, person_xdog_p: float,
+    building_style: str, building_strength: float, building_k: int, building_lineart: float, building_detail: float,
+    building_line_engine: str, building_line_width: float, building_canny_low: int, building_canny_high: int, building_xdog_sigma: float, building_xdog_k: float, building_xdog_p: float,
+    vegetation_style: str, vegetation_strength: float, vegetation_k: int, vegetation_lineart: float, vegetation_detail: float,
+    vegetation_line_engine: str, vegetation_line_width: float, vegetation_canny_low: int, vegetation_canny_high: int, vegetation_xdog_sigma: float, vegetation_xdog_k: float, vegetation_xdog_p: float,
+    road_style: str, road_strength: float, road_k: int, road_lineart: float, road_detail: float,
+    road_line_engine: str, road_line_width: float, road_canny_low: int, road_canny_high: int, road_xdog_sigma: float, road_xdog_k: float, road_xdog_p: float,
+    water_style: str, water_strength: float, water_k: int, water_lineart: float, water_detail: float,
+    water_line_engine: str, water_line_width: float, water_canny_low: int, water_canny_high: int, water_xdog_sigma: float, water_xdog_k: float, water_xdog_p: float,
+    others_style: str, others_strength: float, others_k: int, others_lineart: float, others_detail: float,
+    others_line_engine: str, others_line_width: float, others_canny_low: int, others_canny_high: int, others_xdog_sigma: float, others_xdog_k: float, others_xdog_p: float,
 ) -> np.ndarray | None:
-    """完整处理（上传新图像或更改重计算参数时调用）"""
+    """完整处理（点击生成按钮时调用）"""
     if image is None:
         return None
     
     # 执行完整计算（会自动判断是否需要）
-    full_compute(image, traditional_smooth_method, traditional_k)
+    full_compute(image, traditional_smooth_method, traditional_k, use_diffusion)
     
     # 实时渲染
     return realtime_render(
@@ -433,13 +547,20 @@ def process_image(
         detail_enhance_enabled, detail_strength,
         gamma, contrast, saturation, brightness,
         face_protect_enabled, face_protect_mode, face_gan_weight_max,
-        sky_style, sky_strength, sky_k,
-        person_style, person_strength, person_k,
-        building_style, building_strength, building_k,
-        vegetation_style, vegetation_strength, vegetation_k,
-        road_style, road_strength, road_k,
-        water_style, water_strength, water_k,
-        others_style, others_strength, others_k,
+        sky_style, sky_strength, sky_k, sky_lineart, sky_detail,
+        sky_line_engine, sky_line_width, sky_canny_low, sky_canny_high, sky_xdog_sigma, sky_xdog_k, sky_xdog_p,
+        person_style, person_strength, person_k, person_lineart, person_detail,
+        person_line_engine, person_line_width, person_canny_low, person_canny_high, person_xdog_sigma, person_xdog_k, person_xdog_p,
+        building_style, building_strength, building_k, building_lineart, building_detail,
+        building_line_engine, building_line_width, building_canny_low, building_canny_high, building_xdog_sigma, building_xdog_k, building_xdog_p,
+        vegetation_style, vegetation_strength, vegetation_k, vegetation_lineart, vegetation_detail,
+        vegetation_line_engine, vegetation_line_width, vegetation_canny_low, vegetation_canny_high, vegetation_xdog_sigma, vegetation_xdog_k, vegetation_xdog_p,
+        road_style, road_strength, road_k, road_lineart, road_detail,
+        road_line_engine, road_line_width, road_canny_low, road_canny_high, road_xdog_sigma, road_xdog_k, road_xdog_p,
+        water_style, water_strength, water_k, water_lineart, water_detail,
+        water_line_engine, water_line_width, water_canny_low, water_canny_high, water_xdog_sigma, water_xdog_k, water_xdog_p,
+        others_style, others_strength, others_k, others_lineart, others_detail,
+        others_line_engine, others_line_width, others_canny_low, others_canny_high, others_xdog_sigma, others_xdog_k, others_xdog_p,
     )
 
 
@@ -529,10 +650,22 @@ def create_ui():
                     
                     # Tab 1: 基础风格 (Base Style) - 用户入口
                     with gr.TabItem("🚀 基础风格", id="tab_base"):
-                        gr.Markdown("### 1. 上传图片与选择基础模式")
+                        gr.Markdown("### 1. 上传图片")
                         input_image = gr.Image(label="上传图片", type="numpy", height=300)
                         
-                        gr.Markdown("### 2. 全局风格设置")
+                        gr.Markdown("### 2. 风格化模式")
+                        with gr.Group():
+                            use_diffusion = gr.Checkbox(
+                                value=False,
+                                label="🎭 启用 AI 扩散风格化 (Diffusion)",
+                                info="启用后可生成 Shinkai/Hayao 等 AI 风格，但需要更长生成时间。关闭则使用传统方法。"
+                            )
+                            gr.Markdown(
+                                "*💡 提示：若 Diffusion 模型未配置或加载失败，系统会自动降级为传统方法*",
+                                visible=True
+                            )
+                        
+                        gr.Markdown("### 3. 全局风格设置")
                         with gr.Group():
                             traditional_smooth_method = gr.Dropdown(
                                 choices=["bilateral", "edge_preserving", "mean_shift"],
@@ -546,7 +679,7 @@ def create_ui():
                                 info="数值越小，颜色越简化，卡通感越强"
                             )
                         
-                        gr.Markdown("### 3. 开始生成")
+                        gr.Markdown("### 4. 开始生成")
                         process_btn = gr.Button("✨ 生成卡通图像", variant="primary", elem_classes="generate-btn", size="lg")
 
                     # Tab 2: 后期微调 (Fine-tuning) - 实时调整
@@ -558,67 +691,147 @@ def create_ui():
                             saturation = gr.Slider(0.5, 1.5, value=1.0, label="饱和度 (鲜艳度)", step=0.05)
                             contrast = gr.Slider(0.5, 1.5, value=1.0, label="对比度", step=0.05)
                             brightness = gr.Slider(-50, 50, value=0, label="亮度微调")
-
-                        with gr.Accordion("✏️ 线稿增强", open=True):
-                            edge_strength = gr.Slider(0, 1, value=0.5, label="线稿不透明度")
-                            line_engine = gr.Radio(["canny", "xdog"], value="canny", label="引擎", interactive=True)
-                            line_width = gr.Slider(0.5, 4, value=1, step=0.25, label="线条粗细")
-                            
-                            with gr.Group(visible=True):
-                                canny_low = gr.Slider(50, 150, value=100, label="Canny 低阈值")
-                                canny_high = gr.Slider(100, 300, value=200, label="Canny 高阈值")
-                                xdog_sigma = gr.Slider(0.1, 2.0, value=0.5, label="XDoG Sigma")
-                                xdog_k = gr.Slider(1.0, 3.0, value=1.6, label="XDoG K")
-                                xdog_p = gr.Slider(5.0, 50.0, value=19.0, label="XDoG P")
-
-                        with gr.Accordion("🔍 纹理细节", open=False):
-                            detail_enhance_enabled = gr.Checkbox(False, label="启用纹理增强 (Guided Filter)")
-                            detail_strength = gr.Slider(0, 1, value=0.5, label="纹理强度")
+                        
+                        gr.Markdown("*线稿和细节增强参数已移至「区域精修」Tab，支持按语义区域分别设置*")
+                        
+                        # 隐藏的全局参数（保持兼容性，实际由区域级控制）
+                        edge_strength = gr.Slider(0, 1, value=0.5, visible=False)
+                        line_engine = gr.Radio(["canny", "xdog"], value="canny", visible=False)
+                        line_width = gr.Slider(0.5, 4, value=1, visible=False)
+                        canny_low = gr.Slider(50, 150, value=100, visible=False)
+                        canny_high = gr.Slider(100, 300, value=200, visible=False)
+                        xdog_sigma = gr.Slider(0.1, 2.0, value=0.5, visible=False)
+                        xdog_k = gr.Slider(1.0, 3.0, value=1.6, visible=False)
+                        xdog_p = gr.Slider(5.0, 50.0, value=19.0, visible=False)
+                        detail_enhance_enabled = gr.Checkbox(False, visible=False)
+                        detail_strength = gr.Slider(0, 1, value=0.5, visible=False)
 
                     # Tab 3: 区域精修 (Region Styles) - 核心修改部分
                     with gr.TabItem("🗺️ 区域精修", id="tab_region"):
-                        gr.Markdown("### 指定特定区域的风格")
-                        gr.Markdown("*针对识别出的语义区域单独设置风格*")
+                        gr.Markdown("### 指定特定区域的风格与后期效果")
+                        gr.Markdown("*针对识别出的语义区域单独设置风格、线稿和细节增强*")
                         
-                        # 使用 scroll-container 包裹所有区域设置，并取消折叠
-                        # CSS 中已设置 display: block !important 避免布局崩坏
+                        # 使用 scroll-container 包裹所有区域设置
                         with gr.Column(elem_classes="scroll-container"):
                             
+                            # ===== 天空 =====
                             with gr.Group():
-                                sky_style = gr.Dropdown(style_choices, value="Shinkai", label="☁️ 天空")
-                                sky_strength = gr.Slider(0, 1, value=1.0, label="强度")
-                                sky_k = gr.Slider(4, 64, value=16, step=2, label="K值 (Traditional)", visible=True) 
+                                gr.Markdown("##### ☁️ 天空")
+                                sky_style = gr.Dropdown(style_choices, value="Shinkai", label="风格")
+                                sky_strength = gr.Slider(0, 1, value=1.0, label="风格强度")
+                                sky_k = gr.Slider(4, 64, value=16, step=2, label="K值 (Traditional)")
+                                with gr.Accordion("✏️ 线稿参数", open=False):
+                                    sky_lineart = gr.Slider(0, 1, value=0.3, label="线稿强度")
+                                    sky_line_engine = gr.Radio(["canny", "xdog"], value="canny", label="引擎")
+                                    sky_line_width = gr.Slider(0.5, 4, value=1, step=0.25, label="线条粗细")
+                                    sky_canny_low = gr.Slider(50, 150, value=100, label="Canny 低阈值")
+                                    sky_canny_high = gr.Slider(100, 300, value=200, label="Canny 高阈值")
+                                    sky_xdog_sigma = gr.Slider(0.1, 2.0, value=0.5, label="XDoG Sigma")
+                                    sky_xdog_k = gr.Slider(1.0, 3.0, value=1.6, label="XDoG K")
+                                    sky_xdog_p = gr.Slider(5.0, 50.0, value=19.0, label="XDoG P")
+                                    sky_detail = gr.Slider(0, 1, value=0.0, label="🔍 细节增强")
 
+                            # ===== 人物 =====
                             with gr.Group():
-                                person_style = gr.Dropdown(style_choices, value="Traditional", label="👤 人物")
-                                person_strength = gr.Slider(0, 1, value=0.7, label="强度")
-                                person_k = gr.Slider(4, 64, value=20, step=2, label="K值 (Traditional)",visible=True)
+                                gr.Markdown("##### 👤 人物")
+                                person_style = gr.Dropdown(style_choices, value="Traditional", label="风格")
+                                person_strength = gr.Slider(0, 1, value=0.7, label="风格强度")
+                                person_k = gr.Slider(4, 64, value=20, step=2, label="K值 (Traditional)")
+                                with gr.Accordion("✏️ 线稿参数", open=False):
+                                    person_lineart = gr.Slider(0, 1, value=0.6, label="线稿强度")
+                                    person_line_engine = gr.Radio(["canny", "xdog"], value="canny", label="引擎")
+                                    person_line_width = gr.Slider(0.5, 4, value=1, step=0.25, label="线条粗细")
+                                    person_canny_low = gr.Slider(50, 150, value=100, label="Canny 低阈值")
+                                    person_canny_high = gr.Slider(100, 300, value=200, label="Canny 高阈值")
+                                    person_xdog_sigma = gr.Slider(0.1, 2.0, value=0.5, label="XDoG Sigma")
+                                    person_xdog_k = gr.Slider(1.0, 3.0, value=1.6, label="XDoG K")
+                                    person_xdog_p = gr.Slider(5.0, 50.0, value=19.0, label="XDoG P")
+                                    person_detail = gr.Slider(0, 1, value=0.3, label="🔍 细节增强")
 
+                            # ===== 建筑 =====
                             with gr.Group():
-                                building_style = gr.Dropdown(style_choices, value="Traditional", label="🏠 建筑")
-                                building_strength = gr.Slider(0, 1, value=1.0, label="强度")
-                                building_k = gr.Slider(4, 64, value=16, step=2, label="K值 (Traditional)",visible=True)
+                                gr.Markdown("##### 🏠 建筑")
+                                building_style = gr.Dropdown(style_choices, value="Traditional", label="风格")
+                                building_strength = gr.Slider(0, 1, value=1.0, label="风格强度")
+                                building_k = gr.Slider(4, 64, value=16, step=2, label="K值 (Traditional)")
+                                with gr.Accordion("✏️ 线稿参数", open=False):
+                                    building_lineart = gr.Slider(0, 1, value=0.7, label="线稿强度")
+                                    building_line_engine = gr.Radio(["canny", "xdog"], value="canny", label="引擎")
+                                    building_line_width = gr.Slider(0.5, 4, value=1, step=0.25, label="线条粗细")
+                                    building_canny_low = gr.Slider(50, 150, value=100, label="Canny 低阈值")
+                                    building_canny_high = gr.Slider(100, 300, value=200, label="Canny 高阈值")
+                                    building_xdog_sigma = gr.Slider(0.1, 2.0, value=0.5, label="XDoG Sigma")
+                                    building_xdog_k = gr.Slider(1.0, 3.0, value=1.6, label="XDoG K")
+                                    building_xdog_p = gr.Slider(5.0, 50.0, value=19.0, label="XDoG P")
+                                    building_detail = gr.Slider(0, 1, value=0.2, label="🔍 细节增强")
 
+                            # ===== 植被 =====
                             with gr.Group():
-                                vegetation_style = gr.Dropdown(style_choices, value="Hayao", label="🌳 植被")
-                                vegetation_strength = gr.Slider(0, 1, value=1.0, label="强度")
-                                vegetation_k = gr.Slider(4, 64, value=24, step=2, label="K值 (Traditional)",visible=True)
+                                gr.Markdown("##### 🌳 植被")
+                                vegetation_style = gr.Dropdown(style_choices, value="Hayao", label="风格")
+                                vegetation_strength = gr.Slider(0, 1, value=1.0, label="风格强度")
+                                vegetation_k = gr.Slider(4, 64, value=24, step=2, label="K值 (Traditional)")
+                                with gr.Accordion("✏️ 线稿参数", open=False):
+                                    vegetation_lineart = gr.Slider(0, 1, value=0.4, label="线稿强度")
+                                    vegetation_line_engine = gr.Radio(["canny", "xdog"], value="canny", label="引擎")
+                                    vegetation_line_width = gr.Slider(0.5, 4, value=1, step=0.25, label="线条粗细")
+                                    vegetation_canny_low = gr.Slider(50, 150, value=100, label="Canny 低阈值")
+                                    vegetation_canny_high = gr.Slider(100, 300, value=200, label="Canny 高阈值")
+                                    vegetation_xdog_sigma = gr.Slider(0.1, 2.0, value=0.5, label="XDoG Sigma")
+                                    vegetation_xdog_k = gr.Slider(1.0, 3.0, value=1.6, label="XDoG K")
+                                    vegetation_xdog_p = gr.Slider(5.0, 50.0, value=19.0, label="XDoG P")
+                                    vegetation_detail = gr.Slider(0, 1, value=0.5, label="🔍 细节增强")
 
-                            # 移除了 Accordion，直接平铺显示
+                            # ===== 道路 =====
                             with gr.Group():
-                                road_style = gr.Dropdown(style_choices, value="Traditional", label="🛤️ 道路")
-                                road_strength = gr.Slider(0, 1, value=1.0, label="强度")
-                                road_k = gr.Slider(4, 64, value=12, step=2, label="K值 (Traditional)",visible=True)
+                                gr.Markdown("##### 🛤️ 道路")
+                                road_style = gr.Dropdown(style_choices, value="Traditional", label="风格")
+                                road_strength = gr.Slider(0, 1, value=1.0, label="风格强度")
+                                road_k = gr.Slider(4, 64, value=12, step=2, label="K值 (Traditional)")
+                                with gr.Accordion("✏️ 线稿参数", open=False):
+                                    road_lineart = gr.Slider(0, 1, value=0.5, label="线稿强度")
+                                    road_line_engine = gr.Radio(["canny", "xdog"], value="canny", label="引擎")
+                                    road_line_width = gr.Slider(0.5, 4, value=1, step=0.25, label="线条粗细")
+                                    road_canny_low = gr.Slider(50, 150, value=100, label="Canny 低阈值")
+                                    road_canny_high = gr.Slider(100, 300, value=200, label="Canny 高阈值")
+                                    road_xdog_sigma = gr.Slider(0.1, 2.0, value=0.5, label="XDoG Sigma")
+                                    road_xdog_k = gr.Slider(1.0, 3.0, value=1.6, label="XDoG K")
+                                    road_xdog_p = gr.Slider(5.0, 50.0, value=19.0, label="XDoG P")
+                                    road_detail = gr.Slider(0, 1, value=0.1, label="🔍 细节增强")
                                 
+                            # ===== 水体 =====
                             with gr.Group():
-                                water_style = gr.Dropdown(style_choices, value="Shinkai", label="🌊 水体")
-                                water_strength = gr.Slider(0, 1, value=1.0, label="强度")
-                                water_k = gr.Slider(4, 64, value=16, step=2, label="K值 (Traditional)",visible=True)
+                                gr.Markdown("##### 🌊 水体")
+                                water_style = gr.Dropdown(style_choices, value="Shinkai", label="风格")
+                                water_strength = gr.Slider(0, 1, value=1.0, label="风格强度")
+                                water_k = gr.Slider(4, 64, value=16, step=2, label="K值 (Traditional)")
+                                with gr.Accordion("✏️ 线稿参数", open=False):
+                                    water_lineart = gr.Slider(0, 1, value=0.2, label="线稿强度")
+                                    water_line_engine = gr.Radio(["canny", "xdog"], value="canny", label="引擎")
+                                    water_line_width = gr.Slider(0.5, 4, value=1, step=0.25, label="线条粗细")
+                                    water_canny_low = gr.Slider(50, 150, value=100, label="Canny 低阈值")
+                                    water_canny_high = gr.Slider(100, 300, value=200, label="Canny 高阈值")
+                                    water_xdog_sigma = gr.Slider(0.1, 2.0, value=0.5, label="XDoG Sigma")
+                                    water_xdog_k = gr.Slider(1.0, 3.0, value=1.6, label="XDoG K")
+                                    water_xdog_p = gr.Slider(5.0, 50.0, value=19.0, label="XDoG P")
+                                    water_detail = gr.Slider(0, 1, value=0.0, label="🔍 细节增强")
                                 
+                            # ===== 其他 =====
                             with gr.Group():
-                                others_style = gr.Dropdown(style_choices, value="Traditional", label="📦 其他")
-                                others_strength = gr.Slider(0, 1, value=1.0, label="强度")
-                                others_k = gr.Slider(4, 64, value=16, step=2, label="K值 (Traditional)",visible=True)
+                                gr.Markdown("##### 📦 其他")
+                                others_style = gr.Dropdown(style_choices, value="Traditional", label="风格")
+                                others_strength = gr.Slider(0, 1, value=1.0, label="风格强度")
+                                others_k = gr.Slider(4, 64, value=16, step=2, label="K值 (Traditional)")
+                                with gr.Accordion("✏️ 线稿参数", open=False):
+                                    others_lineart = gr.Slider(0, 1, value=0.5, label="线稿强度")
+                                    others_line_engine = gr.Radio(["canny", "xdog"], value="canny", label="引擎")
+                                    others_line_width = gr.Slider(0.5, 4, value=1, step=0.25, label="线条粗细")
+                                    others_canny_low = gr.Slider(50, 150, value=100, label="Canny 低阈值")
+                                    others_canny_high = gr.Slider(100, 300, value=200, label="Canny 高阈值")
+                                    others_xdog_sigma = gr.Slider(0.1, 2.0, value=0.5, label="XDoG Sigma")
+                                    others_xdog_k = gr.Slider(1.0, 3.0, value=1.6, label="XDoG K")
+                                    others_xdog_p = gr.Slider(5.0, 50.0, value=19.0, label="XDoG P")
+                                    others_detail = gr.Slider(0, 1, value=0.2, label="🔍 细节增强")
 
                     # Tab 4: 高级设置 (Advanced)
                     with gr.TabItem("⚙️ 高级", id="tab_adv"):
@@ -661,9 +874,10 @@ def create_ui():
                     mask_preview = gr.Image(label="语义遮罩层", type="numpy", height=300)
                     mask_info = gr.Textbox(label="覆盖率信息", show_label=False)
 
-        # 整理所有输入
+        # 整理所有输入（注意：use_diffusion 放在前面，作为重要的模式选择）
         all_inputs = [
             input_image,
+            use_diffusion,  # Diffusion 开关
             traditional_smooth_method, traditional_k,
             fusion_method, fusion_blur_kernel,
             harmonization_enabled, harmonization_reference, harmonization_strength,
@@ -672,16 +886,30 @@ def create_ui():
             detail_enhance_enabled, detail_strength,
             gamma, contrast, saturation, brightness,
             face_protect_enabled, face_protect_mode, face_gan_weight_max,
-            sky_style, sky_strength, sky_k,
-            person_style, person_strength, person_k,
-            building_style, building_strength, building_k,
-            vegetation_style, vegetation_strength, vegetation_k,
-            road_style, road_strength, road_k,
-            water_style, water_strength, water_k,
-            others_style, others_strength, others_k,
+            # 天空
+            sky_style, sky_strength, sky_k, sky_lineart, sky_detail,
+            sky_line_engine, sky_line_width, sky_canny_low, sky_canny_high, sky_xdog_sigma, sky_xdog_k, sky_xdog_p,
+            # 人物
+            person_style, person_strength, person_k, person_lineart, person_detail,
+            person_line_engine, person_line_width, person_canny_low, person_canny_high, person_xdog_sigma, person_xdog_k, person_xdog_p,
+            # 建筑
+            building_style, building_strength, building_k, building_lineart, building_detail,
+            building_line_engine, building_line_width, building_canny_low, building_canny_high, building_xdog_sigma, building_xdog_k, building_xdog_p,
+            # 植被
+            vegetation_style, vegetation_strength, vegetation_k, vegetation_lineart, vegetation_detail,
+            vegetation_line_engine, vegetation_line_width, vegetation_canny_low, vegetation_canny_high, vegetation_xdog_sigma, vegetation_xdog_k, vegetation_xdog_p,
+            # 道路
+            road_style, road_strength, road_k, road_lineart, road_detail,
+            road_line_engine, road_line_width, road_canny_low, road_canny_high, road_xdog_sigma, road_xdog_k, road_xdog_p,
+            # 水体
+            water_style, water_strength, water_k, water_lineart, water_detail,
+            water_line_engine, water_line_width, water_canny_low, water_canny_high, water_xdog_sigma, water_xdog_k, water_xdog_p,
+            # 其他
+            others_style, others_strength, others_k, others_lineart, others_detail,
+            others_line_engine, others_line_width, others_canny_low, others_canny_high, others_xdog_sigma, others_xdog_k, others_xdog_p,
         ]
         
-        # 实时调整参数列表
+        # 实时调整参数列表（不包含 use_diffusion，因为切换 Diffusion 需要重新生成）
         realtime_components = [
             fusion_method, fusion_blur_kernel,
             harmonization_enabled, harmonization_reference, harmonization_strength,
@@ -690,33 +918,51 @@ def create_ui():
             detail_enhance_enabled, detail_strength,
             gamma, contrast, saturation, brightness,
             face_protect_enabled, face_protect_mode, face_gan_weight_max,
-            sky_style, sky_strength, sky_k,
-            person_style, person_strength, person_k,
-            building_style, building_strength, building_k,
-            vegetation_style, vegetation_strength, vegetation_k,
-            road_style, road_strength, road_k,
-            water_style, water_strength, water_k,
-            others_style, others_strength, others_k,
+            # 天空
+            sky_style, sky_strength, sky_k, sky_lineart, sky_detail,
+            sky_line_engine, sky_line_width, sky_canny_low, sky_canny_high, sky_xdog_sigma, sky_xdog_k, sky_xdog_p,
+            # 人物
+            person_style, person_strength, person_k, person_lineart, person_detail,
+            person_line_engine, person_line_width, person_canny_low, person_canny_high, person_xdog_sigma, person_xdog_k, person_xdog_p,
+            # 建筑
+            building_style, building_strength, building_k, building_lineart, building_detail,
+            building_line_engine, building_line_width, building_canny_low, building_canny_high, building_xdog_sigma, building_xdog_k, building_xdog_p,
+            # 植被
+            vegetation_style, vegetation_strength, vegetation_k, vegetation_lineart, vegetation_detail,
+            vegetation_line_engine, vegetation_line_width, vegetation_canny_low, vegetation_canny_high, vegetation_xdog_sigma, vegetation_xdog_k, vegetation_xdog_p,
+            # 道路
+            road_style, road_strength, road_k, road_lineart, road_detail,
+            road_line_engine, road_line_width, road_canny_low, road_canny_high, road_xdog_sigma, road_xdog_k, road_xdog_p,
+            # 水体
+            water_style, water_strength, water_k, water_lineart, water_detail,
+            water_line_engine, water_line_width, water_canny_low, water_canny_high, water_xdog_sigma, water_xdog_k, water_xdog_p,
+            # 其他
+            others_style, others_strength, others_k, others_lineart, others_detail,
+            others_line_engine, others_line_width, others_canny_low, others_canny_high, others_xdog_sigma, others_xdog_k, others_xdog_p,
         ]
         
         # ================== 事件绑定 ==================
+        # 点击生成按钮才开始处理（不再自动触发）
         process_btn.click(
             fn=process_image,
             inputs=all_inputs,
             outputs=output_image
         )
 
-        # 上传图片后自动处理，保持原有“即传即算”体验
-        input_image.change(
-            fn=process_image,
-            inputs=all_inputs,
-            outputs=output_image
-        )
+        # 移除上传图片后自动处理，用户需要点击"生成"按钮
+        # input_image.change(...) 已移除
         
         def realtime_update(*args):
-            """实时更新（仅当缓存存在时）"""
+            """实时更新（仅当缓存存在且参数变化时）"""
             if _cache["candidates"] is None:
-                return None 
+                return None
+            
+            # 防止重复渲染：检查参数是否真的变化了
+            args_hash = hash(str(args))
+            if _cache.get("last_render_args") == args_hash:
+                return None  # 参数未变化，跳过渲染
+            
+            _cache["last_render_args"] = args_hash
             return realtime_render(*args)
         
         for component in realtime_components:

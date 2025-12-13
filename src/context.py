@@ -101,6 +101,19 @@ class RegionConfig:
     toon_K: int = 16           # KMeans 颜色数量
     smooth_strength: float = 0.6
     edge_strength: float = 0.5
+    
+    # 后期处理参数（区域级）
+    lineart_strength: float = 0.5      # 线稿叠加强度
+    detail_enhance: float = 0.0        # 细节增强强度（0=关闭）
+    
+    # 线稿引擎参数（区域级）
+    line_engine: str = "canny"         # canny | xdog
+    line_width: float = 1.0            # 线条粗细
+    canny_low: int = 100               # Canny 低阈值
+    canny_high: int = 200              # Canny 高阈值
+    xdog_sigma: float = 0.5            # XDoG Sigma
+    xdog_k: float = 1.6                # XDoG K
+    xdog_p: float = 19.0               # XDoG P
 
 
 @dataclass

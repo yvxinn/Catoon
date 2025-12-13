@@ -213,57 +213,49 @@ Output Image (O)
 
 ---
 
-## 3.3 模块 C：多候选风格生成（Multi-Style Candidates）
+## 3.3 模块 C：多候选风格生成（Multi-Style Candidates）[重构]
+
+变更摘要：引入基于 Diffusers 的 DiffusionStylizer 替代/补充 GAN，利用传统算法结果作为生成约束，保证候选图结构对齐、色块一致。
 
 ### 职责
 
-- 对整图生成多个风格候选 `S_j`
-- 缓存候选避免 UI 交互重复推理
-- 同时缓存颜色统计用于全局协调
+- 使用 ControlNet + img2img 生成多风格候选，同时锁定结构与色块布局
+- 缓存候选与颜色统计，保证 UI 交互不重复推理
+- 输出对齐的候选图，便于后续语义融合无伪影
 
----
+### C1：Diffusion 风格化候选（核心升级）
 
-### C1：GAN 风格化候选
+- **技术栈**：Stable Diffusion (SD1.5 或 SDXL-Turbo) + ControlNet (Canny/Lineart)
+- **输入**
+  - `init_image`: 由 C2 传统风格化生成的 toon base（提供色彩布局、简化纹理）
+  - `control_map`: 由 G1 线稿引擎生成的边缘图（Canny 或 XDoG），作为 ControlNet 条件
+  - `prompt`: 风格提示词（如 “Makoto Shinkai style, vibrant clouds...”）
+- **控制逻辑**
+  - ControlNet-Canny/Lineart 权重：0.8~1.0，用于锁死轮廓，避免人物/建筑变形，并保证多张候选图像素级对齐
+  - `denoising_strength`（重绘幅度）：0.3~0.6，在传统算法生成的“色块图”上添加细节而非重绘
+- **优势**
+  - 传统算法控制颜色块分布，ControlNet 锁定结构，Diffusion 只负责高质量渲染，候选间天然对齐
+  - 兼容现有“候选缓存 + 语义路由 + 区域融合”框架
 
-候选示例（可按资源缩减/替换）：
+### C2：传统风格化候选（保留并升格）
 
-- AnimeGANv2/v3：Hayao / Shinkai / Paprika 等
-- CartoonGAN：通用卡通风（或其他可用 stylizer）
+- **职责升级**：不仅是一个可选“复古”风格，同时为 Diffusion 提供 `init_image`（色彩约束）
+- **流程**：Bilateral/edge-preserving 平滑 → KMeans 量化（默认 K=16，可区域覆盖）→ toon base
+- **输出**：`S_trad` 仍作为候选保留；也作为 Diffusion 的底图输入
 
-每个候选缓存：
+### 接口（建议落地）
 
-- `image`: `float32 (H,W,3)`（或 uint8）
-- `color_stats`：
-
-  - Lab 均值/方差（快速）
-  - 可选：每通道直方图（用于更精细 harmonization）
-
-> 工程建议：GAN 推理占用最大，务必做 `LRU cache`（key: image_hash + style_id + model_version）。
-
----
-
-### C2：传统风格化候选（可调“创新点”）
-
-处理流程：
-
+```python
+class DiffusionStylizer:
+    def generate_candidates(
+        self,
+        ctx: Context,
+        traditional_image: np.ndarray,  # 来自传统算法
+        edge_map: np.ndarray,           # 来自线稿模块
+        styles: list[str]
+    ) -> dict[str, StyleCandidate]:
+        ...
 ```
-原图 → edge-preserving 平滑 → 颜色量化（KMeans）→ toon base
-```
-
-平滑算法（三选一，默认 bilateral）：
-
-- `bilateralFilter`: 经典 cartoon 平滑
-- `edgePreservingFilter`: 更“块面化”，但参数更敏感
-- `pyrMeanShiftFiltering`: 海报化强，速度可能慢
-
-颜色量化：
-
-- 推荐 `MiniBatchKMeans`（更快、更适合高分辨率）
-- 默认 `K=16`，允许“区域 K 倍率”覆盖（例如 SKY 更小 K，人物更大 K）
-
-输出：
-
-- `S_trad` 作为一个候选风格图（也进入同一缓存体系）
 
 ---
 
@@ -448,55 +440,45 @@ harmonized = fused * (1 - match_strength) + matched * match_strength
 
 ---
 
-## 3.7 模块 G：线稿与细节（Line-art & Detail）
+## 3.7 模块 G：线稿与细节（Line-art & Detail）[调整位置]
+
+### 变更摘要
+
+- **提取 (Extract)**：执行时机提前到模块 C 之前，用作 ControlNet 结构约束
+- **叠加 (Overlay)**：仍保留在 Pipeline 末端，作为可选视觉强化
 
 ### 职责
 
-- 输出可控线稿叠加效果（更“卡通化”）
-- 可选的细节注入提升质感（但要有降级方案）
+- 生成边缘约束图 `edge_map`（Canny/XDoG），供 Diffusion ControlNet 使用
+- 最终可选叠加线稿，增强卡通感
+- 可选细节注入（Guided Filter）保留降级方案
 
----
+### G1：线稿引擎（前置用于约束）
 
-### G1：线稿引擎
+- Canny（稳定、参数易理解）
+- XDoG（艺术线条，ControlNet 对应 lineart 模型更敏感）
+- 输出：`edge_map float32 (H,W)`；可缓存复用
 
-1. Canny（稳定、参数易理解）
-2. XDoG（艺术线条、报告效果更强）
-
-线稿叠加方式（推荐 multiply）：
+### G2：线稿叠加（末端可选）
 
 ```python
 output = image * (1 - edges * edge_strength)
 ```
 
-边缘粗细：
+- 允许 UI 控制叠加强度、line_width、threshold
+- 若 Diffusion 已显式保留线条，叠加可关闭（开关：`overlay_edges`）
 
-- `dilate/erode` 控制 line_width
-- `threshold` 控制 edge_density
+### G3：细节注入（可选 + 降级）
 
----
-
-### G2：细节注入（可选 + 降级）
-
-优选：Guided Filter（通常在 opencv-contrib 的 ximgproc 中）
-
-**工程提示（避免踩坑）**
-
-- Guided Filter 依赖 `opencv-contrib-python`，且不同版本 import 方式可能不同
-- 若 `cv2.ximgproc` 不存在：自动降级为（1）不开启细节注入或（2）bilateral 近似
-
-伪代码示意：
+- 优选：Guided Filter；若 `cv2.ximgproc` 不可用，自动降级为 no-op 或 bilateral 近似
+- 伪代码：
 
 ```python
 try:
     gf = cv2.ximgproc.guidedFilter(guide, src, radius, eps)
 except Exception:
-    gf = src  # fallback
+    gf = src
 ```
-
-输出：
-
-- `final_with_lines`
-- `edge_map`（可导出用于报告展示）
 
 ---
 
@@ -534,10 +516,10 @@ except Exception:
 
 ### 4.2 默认候选集合（最小可用）
 
-- GAN：Hayao、Shinkai（2 个）
-- 传统：Traditional（1 个）
+- Diffusion：Shinkai、Hayao（2 个，ControlNet-Canny）
+- 传统：Traditional（1 个，亦作为 Diffusion init）
 
-> 先保证 “3 候选 + 路由 + 融合 + 协调 + 线稿” 全流程跑通，再加更多 stylizer。
+> 先保证 “2 个 Diffusion + Traditional + 路由 + 融合 + 协调 + 线稿” 闭环跑通，再扩展更多风格。
 
 ### 4.3 默认融合策略
 
@@ -617,6 +599,11 @@ face_policy: ... # 见 D 节
 - mediapipe（人脸）
 - gradio（UI）
 - pyyaml 或 omegaconf（配置）
+- diffusers（Stable Diffusion / ControlNet）
+- accelerate（Diffusers 推理调度）
+- controlnet_aux（可选，若直接复用本地 Canny/XDoG 可不装）
+
+> 硬件建议：SD1.5 + ControlNet 推荐显存 ≥8GB；若使用 SDXL-Turbo/LCM 可将显存需求降到 4–6GB。
 
 > 工程建议：提供 `requirements.txt` + `requirements-lite.txt`（不含可选深度/poisson/guided 等重依赖）。
 
@@ -652,47 +639,59 @@ semantic-cartoon/
 
 ---
 
-## 八、主 Pipeline 伪代码（优化版）
+## 八、主 Pipeline 伪代码（结构一致性扩散版）
 
 ```python
 class CartoonPipeline:
     def __init__(self, config_path: str):
         self.cfg = load_config(config_path)
-
         self.pre = Preprocessor(self.cfg)
         self.seg = SegFormerSegmenter(self.cfg)
         self.face = FaceDetector(self.cfg) if self.cfg.segmentation.use_face_detector else None
 
-        self.stylizers = init_stylizers(self.cfg)
+        self.stylizers = init_stylizers(self.cfg)           # 含 Traditional
+        self.diffusion = DiffusionStylizer(self.cfg)        # 新增
         self.router = SemanticRouter(self.cfg)
 
         self.fuser = FusionModule(self.cfg)
         self.harmo = Harmonizer(self.cfg)
         self.line = LineartEngine(self.cfg)
-
         self.depth = DepthEnhancer(self.cfg) if self.cfg.depth.enabled else None
 
     def process(self, image_u8, ui_params=None):
         ui_params = ui_params or {}
 
-        # A. preprocess
+        # A. 预处理
         ctx = self.pre.process(image_u8)
 
-        # B. semantic analysis
-        seg_out = self.seg.predict(ctx.image_f32)             # label_map + masks
+        # B. 语义分割 + 人脸
+        seg_out = self.seg.predict(ctx.image_f32)
         face_mask = self.face.detect(ctx.image_u8) if self.face else None
 
-        # C. style candidates (cached)
-        candidates = get_or_build_candidates(ctx, self.stylizers)
+        # [NEW] 约束生成（结构 + 色彩）
+        edge_map = self.line.extract(ctx.image_u8, ui_params)           # 结构约束
+        trad_candidate = self.stylizers["Traditional"].stylize(
+            ctx.image_f32,
+            K=ui_params.get("traditional_k", self.cfg.stylizers.traditional.default_K)
+        )                                                               # 色彩约束
 
-        # D. routing
+        # C. 候选生成（Diffusion 接管，多风格）
+        candidates = self.diffusion.generate_candidates(
+            ctx=ctx,
+            traditional_image=trad_candidate.image,
+            edge_map=edge_map,
+            styles=[s.name for s in self.cfg.diffusion.styles]
+        )
+        candidates["Traditional"] = trad_candidate
+
+        # D. 语义路由（可复用原有逻辑）
         routing = self.router.route(
             semantic_masks=seg_out.semantic_masks,
             face_mask=face_mask,
             ui_overrides=ui_params
         )
 
-        # E. fusion
+        # E. 区域融合
         fused = self.fuser.fuse(
             candidates=candidates,
             routing=routing,
@@ -700,27 +699,23 @@ class CartoonPipeline:
             method=ui_params.get("fusion_method", self.cfg.fusion.default_method)
         )
 
-        # F. harmonization
+        # F. 全局协调
         if ui_params.get("harmonization_enabled", self.cfg.harmonization.enabled):
-            ref = self.harmo.pick_reference(
-                candidates, seg_out, ui_params, self.cfg.harmonization
-            )
+            ref = self.harmo.pick_reference(candidates, seg_out, ui_params, self.cfg.harmonization)
             fused = self.harmo.match_and_adjust(fused, ref, ui_params)
 
-        # G. lineart
-        edge_strength = ui_params.get("edge_strength", self.cfg.lineart.default_strength)
-        if edge_strength > 1e-3:
-            edges = self.line.extract(ctx.image_u8, ui_params)
-            fused = self.line.overlay(fused, edges, edge_strength, ui_params)
+        # G. 线稿叠加（可选，复用前面的 edge_map）
+        if ui_params.get("overlay_edges", True):
+            edge_strength = ui_params.get("edge_strength", self.cfg.lineart.default_strength)
+            if edge_strength > 1e-3:
+                fused = self.line.overlay(fused, edge_map, edge_strength, ui_params)
 
-        # H. depth enhancement (optional)
+        # H. 深度增强（可选）
         if self.depth and ui_params.get("depth_fog_enabled", False):
             depth_map = self.depth.estimate(ctx.image_u8)
             fused = self.depth.apply_fog(fused, depth_map, ui_params)
 
-        # postprocess (resize back)
-        out_u8 = self.pre.postprocess(fused, ctx)
-        return out_u8
+        return self.pre.postprocess(fused, ctx)
 ```
 
 ---

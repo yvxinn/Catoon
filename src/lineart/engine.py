@@ -166,4 +166,129 @@ class LineartEngine:
         
         self.guided_filter.detail_strength = strength
         return self.guided_filter.enhance(image, guide)
+    
+    def extract_from_stylized(
+        self,
+        stylized_image: np.ndarray,
+        params: dict
+    ) -> np.ndarray:
+        """
+        从风格化后的图像提取线稿（用于后期线稿增强）
+        
+        Args:
+            stylized_image: 风格化后的图像 float32 [0,1]
+            params: 参数字典
+        
+        Returns:
+            边缘图 float32 (H,W) [0,1]
+        """
+        # 转换为 uint8
+        image_u8 = (np.clip(stylized_image, 0, 1) * 255).astype(np.uint8)
+        return self.extract(image_u8, params)
+    
+    def overlay_with_semantic_routing(
+        self,
+        image: np.ndarray,
+        semantic_masks: dict,
+        region_configs: dict,
+        params: dict
+    ) -> np.ndarray:
+        """
+        按语义区域分别应用线稿叠加（每个区域使用独立的引擎和参数）
+        
+        Args:
+            image: 风格化后的图像 float32 [0,1]
+            semantic_masks: {bucket_name: mask} 语义掩码
+            region_configs: {bucket_name: RegionConfig} 区域配置
+            params: 全局参数字典（作为默认值）
+        
+        Returns:
+            叠加线稿后的图像 float32
+        """
+        result = image.copy()
+        image_u8 = (np.clip(image, 0, 1) * 255).astype(np.uint8)
+        
+        # 按区域应用不同的线稿参数
+        for bucket_name, mask in semantic_masks.items():
+            config = region_configs.get(bucket_name)
+            if config is None:
+                continue
+            
+            # 获取区域级线稿强度
+            lineart_strength = getattr(config, "lineart_strength", 0.5)
+            if lineart_strength < 0.01:
+                continue
+            
+            # 获取区域级线稿引擎参数
+            region_engine = getattr(config, "line_engine", params.get("line_engine", "canny"))
+            region_line_width = getattr(config, "line_width", params.get("line_width", 1.0))
+            
+            # 构建区域级参数
+            region_params = {
+                "line_engine": region_engine,
+                "line_width": region_line_width,
+                "canny_low": getattr(config, "canny_low", params.get("canny_low", 100)),
+                "canny_high": getattr(config, "canny_high", params.get("canny_high", 200)),
+                "xdog_sigma": getattr(config, "xdog_sigma", params.get("xdog_sigma", 0.5)),
+                "xdog_k": getattr(config, "xdog_k", params.get("xdog_k", 1.6)),
+                "xdog_p": getattr(config, "xdog_p", params.get("xdog_p", 19.0)),
+            }
+            
+            # 使用区域参数提取边缘
+            edges = self.extract(image_u8, region_params)
+            
+            # 选择叠加方法
+            if region_engine == "xdog":
+                overlay_fn = self.xdog_engine.overlay
+            else:
+                overlay_fn = self.canny_engine.overlay
+            
+            # 对该区域应用线稿
+            region_with_edges = overlay_fn(image, edges, lineart_strength)
+            
+            # 使用 mask 混合
+            mask_3d = mask[:, :, np.newaxis] if mask.ndim == 2 else mask
+            result = result * (1 - mask_3d) + region_with_edges * mask_3d
+        
+        return np.clip(result, 0, 1).astype(np.float32)
+    
+    def enhance_detail_with_semantic_routing(
+        self,
+        image: np.ndarray,
+        guide: np.ndarray,
+        semantic_masks: dict,
+        region_configs: dict
+    ) -> np.ndarray:
+        """
+        按语义区域分别应用细节增强
+        
+        Args:
+            image: 风格化后的图像 float32 [0,1]
+            guide: 引导图像（原图）float32 [0,1]
+            semantic_masks: {bucket_name: mask} 语义掩码
+            region_configs: {bucket_name: RegionConfig} 区域配置
+        
+        Returns:
+            增强后的图像 float32
+        """
+        result = image.copy()
+        
+        for bucket_name, mask in semantic_masks.items():
+            config = region_configs.get(bucket_name)
+            if config is None:
+                continue
+            
+            # 获取区域级细节增强强度
+            detail_enhance = getattr(config, "detail_enhance", 0.0)
+            if detail_enhance < 0.01:
+                continue
+            
+            # 对该区域应用细节增强
+            enhanced = self.enhance_detail(image, guide, detail_enhance)
+            
+            # 使用 mask 混合
+            mask_3d = mask[:, :, np.newaxis] if mask.ndim == 2 else mask
+            result = result * (1 - mask_3d) + enhanced * mask_3d
+        
+        return np.clip(result, 0, 1).astype(np.float32)
 

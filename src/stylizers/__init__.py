@@ -9,11 +9,13 @@ Stylizers 模块 - 风格化生成器
 
 from .traditional import TraditionalStylizer
 from .animegan import AnimeGANStylizer
+from .diffusion import DiffusionStylizer
 from .base import BaseStylizer, init_stylizers
 
 __all__ = [
     "TraditionalStylizer",
     "AnimeGANStylizer",
+    "DiffusionStylizer",
     "BaseStylizer",
     "init_stylizers"
 ]
