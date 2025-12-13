@@ -60,6 +60,10 @@ class SoftMaskFusion:
             if mask is None:
                 continue
             
+            # 调整 mask 尺寸以匹配图像尺寸
+            if mask.shape[:2] != (h, w):
+                mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_LINEAR)
+            
             # 生成 soft mask
             soft_mask = self._make_soft_mask(mask)
             
@@ -83,10 +87,19 @@ class SoftMaskFusion:
             # 获取风格化图像
             styled_image = candidate.image
             
+            # 调整 styled_image 尺寸以匹配目标尺寸
+            if styled_image.shape[:2] != (h, w):
+                styled_image = cv2.resize(styled_image, (w, h), interpolation=cv2.INTER_LINEAR)
+            
+            # 调整 original_image 尺寸（如果需要）
+            orig_for_blend = original_image
+            if original_image is not None and original_image.shape[:2] != (h, w):
+                orig_for_blend = cv2.resize(original_image, (w, h), interpolation=cv2.INTER_LINEAR)
+            
             # 应用 strength 参数：混合原图和风格化图像
-            if original_image is not None and config.strength < 1.0:
+            if orig_for_blend is not None and config.strength < 1.0:
                 strength = config.strength
-                styled_image = original_image * (1 - strength) + styled_image * strength
+                styled_image = orig_for_blend * (1 - strength) + styled_image * strength
             
             # 扩展 mask 维度用于广播
             mask_3d = soft_mask[:, :, np.newaxis]
@@ -138,7 +151,8 @@ class SoftMaskFusion:
         fused: np.ndarray,
         candidates: dict[str, StyleCandidate],
         routing: RoutingPlan,
-        original_image: np.ndarray | None = None
+        original_image: np.ndarray | None = None,
+        region_candidates: dict[str, StyleCandidate] | None = None
     ) -> np.ndarray:
         """
         应用人脸保护
@@ -148,6 +162,7 @@ class SoftMaskFusion:
             candidates: 候选字典
             routing: 路由计划
             original_image: 原图，用于 strength 混合
+            region_candidates: 区域级候选
         
         Returns:
             应用人脸保护后的图像
@@ -155,6 +170,12 @@ class SoftMaskFusion:
         face_mask = routing.face_protection_mask
         if face_mask is None:
             return fused
+        
+        h, w = fused.shape[:2]
+        
+        # 调整 face_mask 尺寸以匹配图像尺寸
+        if face_mask.shape[:2] != (h, w):
+            face_mask = cv2.resize(face_mask, (w, h), interpolation=cv2.INTER_LINEAR)
         
         # 获取人脸区域使用的风格
         person_config = routing.region_configs.get("PERSON")
@@ -171,10 +192,19 @@ class SoftMaskFusion:
         # 获取风格化图像
         face_styled = face_candidate.image
         
+        # 调整 face_styled 尺寸以匹配目标尺寸
+        if face_styled.shape[:2] != (h, w):
+            face_styled = cv2.resize(face_styled, (w, h), interpolation=cv2.INTER_LINEAR)
+        
+        # 调整 original_image 尺寸（如果需要）
+        orig_for_blend = original_image
+        if original_image is not None and original_image.shape[:2] != (h, w):
+            orig_for_blend = cv2.resize(original_image, (w, h), interpolation=cv2.INTER_LINEAR)
+        
         # 应用 strength 参数
-        if original_image is not None and person_config.strength < 1.0:
+        if orig_for_blend is not None and person_config.strength < 1.0:
             strength = person_config.strength
-            face_styled = original_image * (1 - strength) + face_styled * strength
+            face_styled = orig_for_blend * (1 - strength) + face_styled * strength
         
         # 生成 soft face mask
         soft_face_mask = self._make_soft_mask(face_mask)

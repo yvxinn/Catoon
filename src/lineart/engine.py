@@ -205,7 +205,10 @@ class LineartEngine:
         Returns:
             叠加线稿后的图像 float32
         """
+        import cv2
+        
         result = image.copy()
+        h, w = image.shape[:2]
         image_u8 = (np.clip(image, 0, 1) * 255).astype(np.uint8)
         
         # 按区域应用不同的线稿参数
@@ -218,6 +221,10 @@ class LineartEngine:
             lineart_strength = getattr(config, "lineart_strength", 0.5)
             if lineart_strength < 0.01:
                 continue
+            
+            # 调整 mask 尺寸以匹配图像
+            if mask.shape[:2] != (h, w):
+                mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_LINEAR)
             
             # 获取区域级线稿引擎参数
             region_engine = getattr(config, "line_engine", params.get("line_engine", "canny"))
@@ -271,7 +278,10 @@ class LineartEngine:
         Returns:
             增强后的图像 float32
         """
+        import cv2
+        
         result = image.copy()
+        h, w = image.shape[:2]
         
         for bucket_name, mask in semantic_masks.items():
             config = region_configs.get(bucket_name)
@@ -282,6 +292,10 @@ class LineartEngine:
             detail_enhance = getattr(config, "detail_enhance", 0.0)
             if detail_enhance < 0.01:
                 continue
+            
+            # 调整 mask 尺寸以匹配图像
+            if mask.shape[:2] != (h, w):
+                mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_LINEAR)
             
             # 对该区域应用细节增强
             enhanced = self.enhance_detail(image, guide, detail_enhance)
