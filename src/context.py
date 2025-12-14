@@ -147,7 +147,6 @@ class UIParams:
     contrast: float = 1.0
     saturation: float = 1.0
     brightness: float = 0.0
-    temperature: float = 0.0
     
     # 区域覆盖
     region_overrides: dict[str, dict] = field(default_factory=dict)

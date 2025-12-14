@@ -12,11 +12,12 @@
 ## ✨ 特性
 
 - 🗺️ **语义感知**：自动识别天空、人物、建筑、植被等区域
-- 🎭 **多风格路由**：不同区域可应用不同卡通风格
-- 🔗 **无缝融合**：多档融合策略消除接缝伪影
+- 🎭 **多风格路由**：不同区域可应用不同卡通风格 (Traditional/Diffusion)
+- 🔗 **无缝融合**：Soft Mask / Laplacian Pyramid 融合消除接缝伪影
 - 🎨 **全局协调**：直方图匹配解决"缝合怪"问题
 - 👤 **人脸保护**：防止人物面部过度风格化
-- 🖥️ **交互式 UI**：Gradio 界面实时预览与调整
+- ✏️ **双线稿引擎**：Canny + XDoG 艺术线稿
+- 🖥️ **交互式 UI**：模块化 Gradio 界面，实时预览与区域级调整
 
 ---
 
@@ -81,19 +82,25 @@ Catoon/
 │   ├── pipeline.py       # 主 Pipeline
 │   ├── preprocess/       # 预处理模块
 │   ├── segmentation/     # 语义分割 (SegFormer)
-│   ├── stylizers/        # 风格化器 (GAN + Traditional)
+│   ├── stylizers/        # 风格化器 (Traditional + Diffusion)
 │   ├── routing/          # 语义路由
 │   ├── fusion/           # 区域融合
 │   ├── harmonization/    # 全局协调
-│   ├── lineart/          # 线稿生成
+│   ├── lineart/          # 线稿生成 (Canny + XDoG)
 │   └── depth/            # 深度增强 (可选)
-├── ui/
-│   └── gradio_app.py     # Gradio UI
+├── ui/                   # Gradio UI (模块化)
+│   ├── gradio_app.py     # 入口点
+│   ├── state.py          # 会话状态管理
+│   ├── config.py         # 参数数据类和常量
+│   ├── components.py     # UI 组件工厂函数
+│   ├── theme.py          # CSS 和主题定义
+│   ├── layout.py         # 主布局和事件绑定
+│   └── logic.py          # 业务逻辑
 ├── docs/
 │   ├── design.md         # 完整设计文档
-│   ├── modules.md        # 模块规格
-│   ├── dataflow.md       # 数据结构
+│   ├── dependencies.md   # 依赖说明
 │   └── PROGRESS.md       # 开发进度
+├── tests/                # 测试套件 (141 tests)
 └── weights/              # 模型权重 (gitignore)
 ```
 
@@ -101,30 +108,32 @@ Catoon/
 
 ## 🎯 开发路线图
 
-### Phase 1: MVP ← 当前
+### Phase 1: MVP ✅ 完成
 
 - [x] 项目结构与文档
 - [x] 环境配置
-- [ ] SegFormer 语义分割
-- [ ] Traditional 风格化 (bilateral + KMeans)
-- [ ] Soft Mask 融合
-- [ ] 直方图匹配协调
-- [ ] Canny 线稿
-- [ ] 基础 UI
+- [x] SegFormer 语义分割
+- [x] Traditional 风格化 (bilateral + KMeans)
+- [x] Soft Mask 融合
+- [x] 直方图匹配协调
+- [x] Canny 线稿
+- [x] 基础 UI
 
-### Phase 2: 核心增强
+### Phase 2: 核心增强 ✅ 完成
 
-- [ ] AnimeGANv2 接入
-- [ ] 人脸保护机制
-- [ ] Laplacian Pyramid 融合
-- [ ] 区域级 UI 控制
+- [x] AnimeGAN 风格化 (Hayao/Shinkai/Paprika)
+- [x] 人脸保护机制
+- [x] Laplacian Pyramid 融合
+- [x] 区域级 UI 控制
 
-### Phase 3: 展示加分
+### Phase 3: 展示加分 ✅ 完成
 
-- [ ] XDoG 线稿
-- [ ] Poisson 边界修复
-- [ ] MiDaS 深度增强
-- [ ] Guided Filter 细节注入
+- [x] XDoG 艺术线稿
+- [x] Guided Filter 细节注入 (含 fallback)
+- [x] Diffusion 风格化 (ControlNet)
+- [x] UI 模块化重构
+- [ ] Poisson 边界修复 (可选)
+- [ ] MiDaS 深度增强 (可选)
 
 ---
 
@@ -133,8 +142,6 @@ Catoon/
 | 文档 | 描述 |
 |------|------|
 | [design.md](docs/design.md) | 完整架构设计 |
-| [modules.md](docs/modules.md) | 模块详细规格 |
-| [dataflow.md](docs/dataflow.md) | 数据结构定义 |
 | [dependencies.md](docs/dependencies.md) | 依赖与安装 |
 | [PROGRESS.md](docs/PROGRESS.md) | 开发进度追踪 |
 
@@ -171,6 +178,7 @@ lineart:
 
 - [SegFormer](https://github.com/NVlabs/SegFormer) - 语义分割
 - [AnimeGAN](https://github.com/TachibanaYoshino/AnimeGAN) - 动漫风格化
+- [Stable Diffusion](https://github.com/CompVis/stable-diffusion) + [ControlNet](https://github.com/lllyasviel/ControlNet) - Diffusion 风格化
 - [MediaPipe](https://mediapipe.dev/) - 人脸检测
 - [Gradio](https://gradio.app/) - UI 框架
 

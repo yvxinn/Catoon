@@ -105,22 +105,53 @@ CUSTOM_CSS = """
     overflow: hidden;
 }
 
-/* 分组样式 */
+/* 分组样式 - 内部白色块圆角 */
 .gr-group {
     border: 1px solid #e2e8f0;
     border-radius: 8px;
     padding: 12px;
     margin-bottom: 8px;
+    background: white;
+}
+
+/* 内部面板/卡片圆角 */
+.gr-box, .gr-panel, .gr-form {
+    border-radius: 8px !important;
+}
+
+/* 输入组件圆角 */
+.gr-input, .gr-text-input, .gr-number-input {
+    border-radius: 6px !important;
+}
+
+.gr-button {
+    border-radius: 6px !important;
+}
+
+.gr-dropdown, .gr-dropdown > div {
+    border-radius: 6px !important;
+}
+
+/* 滑块容器圆角 */
+.gr-slider {
+    border-radius: 6px !important;
 }
 
 /* Accordion 样式 */
 .gr-accordion {
     border: none !important;
     background: transparent !important;
+    border-radius: 8px !important;
 }
 
 .gr-accordion > .label-wrap {
     padding: 8px 0;
+    border-radius: 6px;
+}
+
+/* Accordion 内部面板圆角 */
+.gr-accordion > .wrap {
+    border-radius: 6px !important;
 }
 
 /* 信息提示样式 */

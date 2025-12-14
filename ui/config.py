@@ -7,7 +7,7 @@ UI Config - 参数数据类定义
 from dataclasses import dataclass, field
 
 
-# ============== 语义区域常量 ==============
+# 语义区域常量
 
 SEMANTIC_BUCKETS = ["SKY", "PERSON", "BUILDING", "VEGETATION", "ROAD", "WATER", "OTHERS"]
 
@@ -26,7 +26,7 @@ SEMANTIC_COLORS = {
 }
 
 
-# ============== 参数数据类 ==============
+# 参数数据类
 
 @dataclass
 class LineartParams:
@@ -113,58 +113,35 @@ class GlobalParams:
     detail_strength: float = 0.5
 
 
-# ============== 区域默认配置 ==============
+# 区域默认配置
+
+# 默认线稿参数（所有区域共用）
+_DEFAULT_LINEART = {
+    "line_engine": "canny",
+    "line_width": 1.0,
+    "canny_low": 100,
+    "canny_high": 200,
+    "xdog_sigma": 0.5,
+    "xdog_k": 1.6,
+    "xdog_p": 19.0,
+}
+
+def _make_region(style: str, strength: float, k: int, lineart_strength: float, detail_enhance: float) -> dict:
+    """生成区域配置"""
+    return {
+        "style": style, "strength": strength, "k": k,
+        "lineart_strength": lineart_strength, "detail_enhance": detail_enhance,
+        **_DEFAULT_LINEART
+    }
 
 REGION_DEFAULTS: dict[str, dict] = {
-    "SKY": {
-        "style": "Shinkai", "strength": 1.0, "k": 16,
-        "lineart_strength": 0.3, "detail_enhance": 0.0,
-        "line_engine": "canny", "line_width": 1.0,
-        "canny_low": 100, "canny_high": 200,
-        "xdog_sigma": 0.5, "xdog_k": 1.6, "xdog_p": 19.0,
-    },
-    "PERSON": {
-        "style": "Traditional", "strength": 0.7, "k": 20,
-        "lineart_strength": 0.6, "detail_enhance": 0.3,
-        "line_engine": "canny", "line_width": 1.0,
-        "canny_low": 100, "canny_high": 200,
-        "xdog_sigma": 0.5, "xdog_k": 1.6, "xdog_p": 19.0,
-    },
-    "BUILDING": {
-        "style": "Traditional", "strength": 1.0, "k": 16,
-        "lineart_strength": 0.7, "detail_enhance": 0.2,
-        "line_engine": "canny", "line_width": 1.0,
-        "canny_low": 100, "canny_high": 200,
-        "xdog_sigma": 0.5, "xdog_k": 1.6, "xdog_p": 19.0,
-    },
-    "VEGETATION": {
-        "style": "Hayao", "strength": 1.0, "k": 24,
-        "lineart_strength": 0.4, "detail_enhance": 0.5,
-        "line_engine": "canny", "line_width": 1.0,
-        "canny_low": 100, "canny_high": 200,
-        "xdog_sigma": 0.5, "xdog_k": 1.6, "xdog_p": 19.0,
-    },
-    "ROAD": {
-        "style": "Traditional", "strength": 1.0, "k": 12,
-        "lineart_strength": 0.5, "detail_enhance": 0.1,
-        "line_engine": "canny", "line_width": 1.0,
-        "canny_low": 100, "canny_high": 200,
-        "xdog_sigma": 0.5, "xdog_k": 1.6, "xdog_p": 19.0,
-    },
-    "WATER": {
-        "style": "Shinkai", "strength": 1.0, "k": 16,
-        "lineart_strength": 0.2, "detail_enhance": 0.0,
-        "line_engine": "canny", "line_width": 1.0,
-        "canny_low": 100, "canny_high": 200,
-        "xdog_sigma": 0.5, "xdog_k": 1.6, "xdog_p": 19.0,
-    },
-    "OTHERS": {
-        "style": "Traditional", "strength": 1.0, "k": 16,
-        "lineart_strength": 0.5, "detail_enhance": 0.2,
-        "line_engine": "canny", "line_width": 1.0,
-        "canny_low": 100, "canny_high": 200,
-        "xdog_sigma": 0.5, "xdog_k": 1.6, "xdog_p": 19.0,
-    },
+    "SKY":        _make_region("Shinkai", 1.0, 16, 0.3, 0.0),
+    "PERSON":     _make_region("Traditional", 0.7, 20, 0.6, 0.3),
+    "BUILDING":   _make_region("Traditional", 1.0, 16, 0.7, 0.2),
+    "VEGETATION": _make_region("Hayao", 1.0, 24, 0.4, 0.5),
+    "ROAD":       _make_region("Traditional", 1.0, 12, 0.5, 0.1),
+    "WATER":      _make_region("Shinkai", 1.0, 16, 0.2, 0.0),
+    "OTHERS":     _make_region("Traditional", 1.0, 16, 0.5, 0.2),
 }
 
 # 区域显示配置（用于 UI 生成）
@@ -179,7 +156,7 @@ REGION_UI_CONFIG = {
 }
 
 
-# ============== 参数解析辅助函数 ==============
+# 参数解析辅助函数
 
 def parse_region_params_from_flat_args(
     bucket: str,

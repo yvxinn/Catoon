@@ -34,14 +34,14 @@ class CartoonPipeline:
         self._face_detector = None
         self._stylizers = None
         self._diffusion_stylizer = None
-        self._region_stylizer = None  # 新增：区域级风格化器
+        self._region_stylizer = None
         self._router = None
         self._fuser = None
         self._harmonizer = None
         self._lineart = None
         self._depth_enhancer = None
     
-    # ==================== 模块懒加载 ====================
+    # 模块懒加载属性
     
     @property
     def preprocessor(self):
@@ -135,7 +135,7 @@ class CartoonPipeline:
             self._depth_enhancer = DepthEnhancer(self.cfg)
         return self._depth_enhancer
     
-    # ==================== 主处理流程 ====================
+    # 主处理流程
     
     def process(
         self,
@@ -158,20 +158,20 @@ class CartoonPipeline:
         elif isinstance(ui_params, UIParams):
             ui_params = vars(ui_params)
         
-        # A. 预处理
+        # 预处理
         ctx = self.preprocessor.process(image_u8)
         
-        # B. 语义分析
+        # 语义分析
         seg_out = self.segmenter.predict(ctx.image_f32)
         face_mask = None
         if self.face_detector:
             face_mask = self.face_detector.detect(ctx.image_u8)
         
-        # C. 约束生成：结构 + 色彩
+        # 约束生成：结构 + 色彩
         edge_map = self._get_or_build_edge_map(ctx, ui_params)
         trad_candidate = self._get_or_build_traditional(ctx, ui_params)
 
-        # C2. 风格候选生成（Diffusion 接管，含 Traditional）
+        # 风格候选生成
         candidates = self._get_or_build_candidates(
             ctx=ctx,
             edge_map=edge_map,
@@ -179,14 +179,14 @@ class CartoonPipeline:
             ui_params=ui_params
         )
         
-        # D. 语义路由
+        # 语义路由
         routing = self.router.route(
             semantic_masks=seg_out.semantic_masks,
             face_mask=face_mask,
             ui_overrides=ui_params
         )
         
-        # 区域级风格化（按需生成，带缓存）
+        # 区域级风格化
         region_candidates = None
         if ui_params.get("enable_region_k", True):
             region_candidates = self.region_stylizer.generate_region_styles(
@@ -197,7 +197,7 @@ class CartoonPipeline:
                 global_candidates=candidates
             )
         
-        # E. 区域融合（传递原图用于 strength 混合）
+        # 区域融合
         fused = self.fuser.fuse(
             candidates=candidates,
             routing=routing,
@@ -208,14 +208,14 @@ class CartoonPipeline:
             region_candidates=region_candidates
         )
         
-        # F. 全局协调
+        # 全局协调
         if ui_params.get("harmonization_enabled", self.cfg.harmonization.enabled):
             ref = self.harmonizer.pick_reference(
                 candidates, seg_out, ui_params, self.cfg.harmonization
             )
             fused = self.harmonizer.match_and_adjust(fused, ref, ui_params)
         
-        # G. 线稿叠加（复用前置 edge_map）
+        # 线稿叠加
         overlay_edges = ui_params.get(
             "overlay_edges", getattr(self.cfg.lineart, "overlay_edges", True)
         )
@@ -223,12 +223,12 @@ class CartoonPipeline:
         if overlay_edges and edge_strength > 1e-3:
             fused = self.lineart.overlay(fused, edge_map, edge_strength, ui_params)
         
-        # G2. 细节增强 (Phase 3 Guided Filter)
+        # 细节增强
         if ui_params.get("detail_enhance_enabled", False):
             detail_strength = ui_params.get("detail_strength", 0.5)
             fused = self.lineart.enhance_detail(fused, ctx.image_f32, detail_strength)
         
-        # H. 深度增强（可选）
+        # 深度增强（可选）
         if self.depth_enhancer and ui_params.get("depth_fog_enabled", False):
             depth_map = self.depth_enhancer.estimate(ctx.image_u8)
             fused = self.depth_enhancer.apply_fog(fused, depth_map, ui_params)

@@ -1,7 +1,4 @@
-# 语义感知可控卡通化框架（优化增强版完整文档）
-
-> 目标：提供一份**可直接实现**、**可复现**、**适合写报告/答辩**的“训练-free 语义感知可控卡通化系统”完整架构说明。
-> 关键词：多候选风格图、多区域语义路由、无缝融合、全局色彩协调、人脸保护、交互式 UI。
+# 语义感知可控卡通化框架
 
 ---
 
@@ -137,7 +134,7 @@ Output Image (O)
 
 ---
 
-### B1：场景语义分割（关键要求）
+### B1：场景语义分割
 
 > ⚠️ **必须使用支持场景语义的分割器**（如 SegFormer + ADE20K/SceneParse150）。
 > 不建议使用 torchvision 默认的 DeepLabv3 VOC 权重（类别不含 sky/building/vegetation，会导致路由失效）。
@@ -194,7 +191,7 @@ Output Image (O)
 
 ---
 
-### B3：边界优化（可选）
+### B3：边界优化
 
 目的：降低 halo/接缝伪影，提高融合边界贴合颜色边缘。
 
@@ -237,7 +234,7 @@ Output Image (O)
   - 传统算法控制颜色块分布，ControlNet 锁定结构，Diffusion 只负责高质量渲染，候选间天然对齐
   - 兼容现有“候选缓存 + 语义路由 + 区域融合”框架
 
-### C2：传统风格化候选（保留并升格）
+### C2：传统风格化候选
 
 - **职责升级**：不仅是一个可选“复古”风格，同时为 Diffusion 提供 `init_image`（色彩约束）
 - **流程**：Bilateral/edge-preserving 平滑 → KMeans 量化（默认 K=16，可区域覆盖）→ toon base
@@ -612,7 +609,7 @@ face_policy: ... # 见 D 节
 ## 七、目录结构（推荐）
 
 ```
-semantic-cartoon/
+Catoon/
 ├── config/
 │   ├── default.yaml
 │   └── presets/
@@ -628,10 +625,16 @@ semantic-cartoon/
 │   ├── lineart/
 │   ├── depth/
 │   └── utils/
-├── ui/
-│   └── gradio_app.py
-├── weights/        # gitignored
-├── tests/
+├── ui/                    # 模块化 Gradio UI
+│   ├── gradio_app.py      # 入口点
+│   ├── state.py           # 会话状态管理
+│   ├── config.py          # 参数数据类和常量
+│   ├── components.py      # UI 组件工厂函数
+│   ├── theme.py           # CSS 和主题定义
+│   ├── layout.py          # 主布局和事件绑定
+│   └── logic.py           # 业务逻辑
+├── tests/                 # 测试套件 (141 tests)
+├── weights/               # gitignored
 ├── examples/
 ├── requirements.txt
 └── README.md
@@ -767,30 +770,32 @@ ui_params = {
 
 ---
 
-## 十、实现优先级与里程碑（更稳的版本）
+## 十、实现优先级与里程碑
 
-### Phase 1：MVP（先跑通闭环）
+### Phase 1：MVP ✅ 完成
 
-- SegFormer 分割 + bucket 映射（按 id2label 自动构建）
-- Traditional stylizer（bilateral + MiniBatchKMeans）
-- 路由 + soft_mask 融合
-- match_histograms 全局协调
-- Canny 线稿
-- 简易 Gradio UI（上传 → 输出、几个滑条）
+- [x] SegFormer 分割 + bucket 映射（按 id2label 自动构建）
+- [x] Traditional stylizer（bilateral + MiniBatchKMeans）
+- [x] 路由 + soft_mask 融合
+- [x] match_histograms 全局协调
+- [x] Canny 线稿
+- [x] 简易 Gradio UI（上传 → 输出、几个滑条）
 
-### Phase 2：核心增强（提升观感与可用性）
+### Phase 2：核心增强 ✅ 完成
 
-- AnimeGANv2（至少 2 风格）接入候选
-- MediaPipe 人脸检测 + face protect（保证人像可用）
-- pyramid 融合（显著减少接缝）
-- UI：区域级风格选择 + 权重
+- [x] AnimeGAN（Hayao/Shinkai/Paprika）接入候选
+- [x] MediaPipe 人脸检测 + face protect
+- [x] Laplacian Pyramid 融合
+- [x] UI：区域级风格选择 + 权重
 
-### Phase 3：展示/答辩加分（可选）
+### Phase 3：展示/答辩加分 ✅ 完成
 
-- XDoG
-- SLIC/边界带 Poisson 修复
-- MiDaS depth fog
-- guided filter detail injection（含 fallback）
+- [x] XDoG 艺术线稿
+- [x] Guided Filter 细节注入（含 fallback）
+- [x] Diffusion 风格化（ControlNet + img2img）
+- [x] UI 模块化重构
+- [ ] SLIC/边界带 Poisson 修复（可选）
+- [ ] MiDaS depth fog（可选）
 
 ---
 

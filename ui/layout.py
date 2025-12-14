@@ -147,7 +147,7 @@ def create_ui():
                 )
         
         with gr.Row():
-            # ================== 左侧控制区 ==================
+            # 左侧控制区
             with gr.Column(scale=1, min_width=350):
                 with gr.Tabs():
                     # Tab 1: 基础风格
@@ -171,7 +171,7 @@ def create_ui():
                     with gr.TabItem("⚙️ 高级", id="tab_adv"):
                         create_advanced_tab(global_comps)
             
-            # ================== 右侧预览区 ==================
+            # 右侧预览区
             with gr.Column(scale=2):
                 output_image = gr.Image(
                     label="最终效果预览", 
@@ -188,13 +188,12 @@ def create_ui():
                     mask_preview = gr.Image(label="语义遮罩层", type="numpy", height=300)
                     mask_info = gr.Textbox(label="覆盖率信息", show_label=False)
         
-        # ================== 收集组件 ==================
+        # 收集组件
         region_inputs = collect_region_inputs(region_ui_map)
         global_inputs = global_comps.get_all_components()
         realtime_region_inputs = collect_realtime_region_inputs(region_ui_map)
         
-        # ================== 事件处理函数 ==================
-        
+        # 事件处理函数
         def process_image(current_state, image, use_diff, smooth_method, k, *args):
             """完整处理（点击生成按钮时调用）"""
             if image is None:
@@ -216,7 +215,7 @@ def create_ui():
             # Stage 2 + 3: 渲染
             result = realtime_render(new_state, ui_params)
             
-            # 缓存渲染结果（用于 Tab 切换时显示）
+            # 缓存渲染结果
             new_state.last_rendered_image = result
             
             return result, new_state
@@ -224,21 +223,10 @@ def create_ui():
         def realtime_update(current_state, *args):
             """实时更新（参数变化时）"""
             if not current_state.is_ready():
-                # 如果还没生成过，返回缓存的图像（如果有）
+                # 如果还没生成过，返回缓存的图像
                 if current_state.last_rendered_image is not None:
                     return current_state.last_rendered_image, current_state
                 return None, current_state
-            
-            # 防止重复渲染：检查参数是否变化
-            args_hash = hash(str(args))
-            if current_state.last_render_args_hash == args_hash:
-                # 参数未变化，返回缓存的图像
-                if current_state.last_rendered_image is not None:
-                    return current_state.last_rendered_image, current_state
-                return None, current_state
-            
-            new_state = current_state.copy()
-            new_state.last_render_args_hash = args_hash
             
             # 分离全局参数和区域参数
             n_global = len(global_inputs)
@@ -247,6 +235,30 @@ def create_ui():
             
             # 构建 ui_params
             ui_params = build_ui_params(global_args, region_args)
+            
+            # 计算稳定的参数哈希
+            def make_hashable(obj):
+                """递归将对象转换为可哈希的形式"""
+                if isinstance(obj, dict):
+                    return tuple(sorted((k, make_hashable(v)) for k, v in obj.items()))
+                elif isinstance(obj, (list, tuple)):
+                    return tuple(make_hashable(x) for x in obj)
+                elif isinstance(obj, float):
+                    return round(obj, 4)  # 避免浮点精度问题
+                else:
+                    return obj
+            
+            args_hash = hash(make_hashable(ui_params))
+            
+            # 防止重复渲染
+            if current_state.last_render_args_hash == args_hash:
+                # 参数未变化，返回缓存的图像
+                if current_state.last_rendered_image is not None:
+                    return current_state.last_rendered_image, current_state
+                return None, current_state
+            
+            new_state = current_state.copy()
+            new_state.last_render_args_hash = args_hash
             
             # 渲染
             result = realtime_render(new_state, ui_params)
@@ -261,9 +273,7 @@ def create_ui():
             img, info, new_state = visualize_semantic_mask(current_state, bucket)
             return img, info, new_state
         
-        # ================== 事件绑定 ==================
-        
-        # 所有输入组件
+        # 事件绑定
         all_inputs = [
             state, input_image, use_diffusion, traditional_smooth_method, traditional_k,
             *global_inputs, *region_inputs

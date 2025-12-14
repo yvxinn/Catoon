@@ -31,7 +31,7 @@ def full_compute(
     use_diffusion: bool = False
 ) -> ProcessingState:
     """
-    完整计算（需要模型推理）- Stage 1
+    完整计算（需要模型推理）
     
     Args:
         state: 用户会话状态
@@ -114,7 +114,7 @@ def apply_tone_adjustment(
     saturation: float,
     brightness: float
 ) -> np.ndarray:
-    """应用色调调整 - Stage 3（最轻量）"""
+    """应用色调调整（gamma、对比度、饱和度、亮度）"""
     import cv2
     
     result = image.copy()
@@ -193,7 +193,7 @@ def realtime_render(
     ui_params: dict
 ) -> np.ndarray | None:
     """
-    实时渲染（不重新推理）- Stage 2 + Stage 3
+    实时渲染（不重新推理）
     
     Args:
         state: 用户会话状态（包含缓存的中间结果）
@@ -211,7 +211,7 @@ def realtime_render(
     face_mask = state.face_mask
     candidates = state.candidates
     
-    # 统一所有数据的尺寸（解决分割输出与风格化图像尺寸不匹配的问题）
+    # 统一所有数据的尺寸
     candidates, unified_masks, face_mask, original_image = _unify_sizes(
         candidates, seg_out, face_mask, ctx.image_f32
     )
@@ -219,19 +219,19 @@ def realtime_render(
     # 创建统一尺寸后的 seg_out 副本
     from src.context import SegmentationOutput
     unified_seg_out = SegmentationOutput(
-        label_map=seg_out.label_map,  # label_map 不需要在融合中使用
+        label_map=seg_out.label_map,
         semantic_masks=unified_masks,
         seg_logits=seg_out.seg_logits
     )
     
-    # D. 语义路由（轻量）
+    # 语义路由
     routing = pipe.router.route(
         semantic_masks=unified_seg_out.semantic_masks,
         face_mask=face_mask,
         ui_overrides=ui_params
     )
     
-    # C2. 区域级风格化（按需生成，带缓存）
+    # 区域级风格化
     region_candidates = pipe.region_stylizer.generate_region_styles(
         image_f32=original_image,
         image_hash=ctx.image_hash,
@@ -240,7 +240,7 @@ def realtime_render(
         global_candidates=candidates
     )
     
-    # E. 区域融合（轻量）
+    # 区域融合
     fused = pipe.fuser.fuse(
         candidates=candidates,
         routing=routing,
@@ -251,14 +251,14 @@ def realtime_render(
         region_candidates=region_candidates
     )
     
-    # F. 全局协调（轻量）
+    # 全局协调
     if ui_params.get("harmonization_enabled", True):
         ref = pipe.harmonizer.pick_reference(
             candidates, unified_seg_out, ui_params, pipe.cfg.harmonization
         )
         fused = pipe.harmonizer.match_and_adjust(fused, ref, ui_params)
     
-    # G. 线稿叠加 - 使用语义路由
+    # 线稿叠加
     has_lineart = any(
         routing.region_configs.get(bucket, None) and 
         getattr(routing.region_configs.get(bucket), "lineart_strength", 0) > 0.01
@@ -276,7 +276,7 @@ def realtime_render(
         edges = pipe.lineart.extract_from_stylized(fused, ui_params)
         fused = pipe.lineart.overlay(fused, edges, ui_params["edge_strength"], ui_params)
     
-    # G2. 细节增强 - 使用语义路由
+    # 细节增强
     has_detail = any(
         routing.region_configs.get(bucket, None) and 
         getattr(routing.region_configs.get(bucket), "detail_enhance", 0) > 0.01
@@ -295,7 +295,7 @@ def realtime_render(
             fused, original_image, ui_params.get("detail_strength", 0.5)
         )
     
-    # Stage 3: 色调调整（最轻量）
+    # 色调调整
     fused = apply_tone_adjustment(
         fused,
         ui_params.get("gamma", 1.0),

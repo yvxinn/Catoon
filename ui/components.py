@@ -5,9 +5,7 @@ UI Components - UI 组件工厂函数
 """
 
 import gradio as gr
-from dataclasses import dataclass, field
-from typing import Any
-
+from dataclasses import dataclass
 from .config import STYLE_CHOICES, REGION_DEFAULTS, REGION_UI_CONFIG, SEMANTIC_BUCKETS
 
 
@@ -163,7 +161,7 @@ def collect_realtime_region_inputs(region_ui_map: dict[str, RegionUIComponents])
     return inputs
 
 
-# ============== 全局参数组件 ==============
+# 全局参数组件
 
 @dataclass
 class GlobalUIComponents:
@@ -217,12 +215,7 @@ class GlobalUIComponents:
         return self.get_all_components()
 
 
-def create_global_ui_components() -> GlobalUIComponents:
-    """创建全局参数 UI 组件（在各自的 Tab 中调用）"""
-    return GlobalUIComponents()
-
-
-# ============== 遮罩按钮组件 ==============
+# 遮罩按钮组件
 
 @dataclass
 class MaskButtonComponents:

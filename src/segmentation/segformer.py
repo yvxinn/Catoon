@@ -65,28 +65,21 @@ class SegFormerSegmenter:
         """加载 SegFormer 模型和处理器"""
         from transformers import SegformerForSemanticSegmentation, SegformerImageProcessor
         
-        model_name = self.cfg.weights  # e.g., "nvidia/segformer-b2-finetuned-ade-512-512"
-        
+        model_name = self.cfg.weights
         print(f"[SegFormer] Loading model: {model_name}")
         
-        # 优先使用本地缓存，避免联网检查
+        # 优先使用本地缓存
         try:
             self._processor = SegformerImageProcessor.from_pretrained(
                 model_name, local_files_only=True
             )
             self._model = SegformerForSemanticSegmentation.from_pretrained(
-                model_name,
-                use_safetensors=True,
-                local_files_only=True
+                model_name, local_files_only=True
             )
         except Exception:
-            # 本地没有则联网下载
             print(f"[SegFormer] Local cache not found, downloading...")
             self._processor = SegformerImageProcessor.from_pretrained(model_name)
-            self._model = SegformerForSemanticSegmentation.from_pretrained(
-                model_name,
-                use_safetensors=True
-            )
+            self._model = SegformerForSemanticSegmentation.from_pretrained(model_name)
         
         self._model.to(self.device)
         self._model.eval()
