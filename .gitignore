@@ -91,7 +91,6 @@ weights/
 # Output / results
 outputs/
 results/
-*.png
 *.jpg
 *.jpeg
 !examples/*.png
@@ -113,3 +112,4 @@ Thumbs.db
 # Gradio
 flagged/
 
+PROGRESS.md
