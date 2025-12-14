@@ -69,12 +69,25 @@ class SegFormerSegmenter:
         
         print(f"[SegFormer] Loading model: {model_name}")
         
-        # 加载模型和处理器（使用 safetensors 格式避免 PyTorch 版本问题）
-        self._processor = SegformerImageProcessor.from_pretrained(model_name)
-        self._model = SegformerForSemanticSegmentation.from_pretrained(
-            model_name,
-            use_safetensors=True  # 使用 safetensors 格式
-        )
+        # 优先使用本地缓存，避免联网检查
+        try:
+            self._processor = SegformerImageProcessor.from_pretrained(
+                model_name, local_files_only=True
+            )
+            self._model = SegformerForSemanticSegmentation.from_pretrained(
+                model_name,
+                use_safetensors=True,
+                local_files_only=True
+            )
+        except Exception:
+            # 本地没有则联网下载
+            print(f"[SegFormer] Local cache not found, downloading...")
+            self._processor = SegformerImageProcessor.from_pretrained(model_name)
+            self._model = SegformerForSemanticSegmentation.from_pretrained(
+                model_name,
+                use_safetensors=True
+            )
+        
         self._model.to(self.device)
         self._model.eval()
         

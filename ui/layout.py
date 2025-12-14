@@ -215,16 +215,26 @@ def create_ui():
             
             # Stage 2 + 3: 渲染
             result = realtime_render(new_state, ui_params)
+            
+            # 缓存渲染结果（用于 Tab 切换时显示）
+            new_state.last_rendered_image = result
+            
             return result, new_state
         
         def realtime_update(current_state, *args):
             """实时更新（参数变化时）"""
             if not current_state.is_ready():
+                # 如果还没生成过，返回缓存的图像（如果有）
+                if current_state.last_rendered_image is not None:
+                    return current_state.last_rendered_image, current_state
                 return None, current_state
             
-            # 防止重复渲染
+            # 防止重复渲染：检查参数是否变化
             args_hash = hash(str(args))
             if current_state.last_render_args_hash == args_hash:
+                # 参数未变化，返回缓存的图像
+                if current_state.last_rendered_image is not None:
+                    return current_state.last_rendered_image, current_state
                 return None, current_state
             
             new_state = current_state.copy()
@@ -240,6 +250,10 @@ def create_ui():
             
             # 渲染
             result = realtime_render(new_state, ui_params)
+            
+            # 缓存渲染结果
+            new_state.last_rendered_image = result
+            
             return result, new_state
         
         def show_mask(current_state, bucket):

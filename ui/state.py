@@ -30,6 +30,7 @@ class ProcessingState:
     
     # 渲染缓存（用于三级流水线）
     composited_image: np.ndarray | None = None  # 合成后的图像（Stage 2 输出）
+    last_rendered_image: np.ndarray | None = None  # 最后渲染的图像（用于 Tab 切换时显示）
     
     # 参数缓存（用于判断是否需要重算）
     trad_params: tuple | None = None   # (k, smooth_method, use_diffusion)
@@ -64,6 +65,7 @@ class ProcessingState:
         self.face_mask = None
         self.candidates = None
         self.composited_image = None
+        self.last_rendered_image = None
         self.trad_params = None
         self.last_render_args_hash = None
         self.last_composite_args_hash = None
@@ -80,6 +82,7 @@ class ProcessingState:
             face_mask=self.face_mask,
             candidates=self.candidates,
             composited_image=self.composited_image,
+            last_rendered_image=self.last_rendered_image,
             trad_params=self.trad_params,
             last_render_args_hash=self.last_render_args_hash,
             last_composite_args_hash=self.last_composite_args_hash,
