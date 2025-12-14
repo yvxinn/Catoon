@@ -46,7 +46,6 @@ class LaplacianPyramidFusion:
         Returns:
             融合后的图像 float32 (H,W,3) [0,1]
         """
-        # 获取图像尺寸
         first_candidate = next(iter(candidates.values()))
         h, w, c = first_candidate.image.shape
         
@@ -89,7 +88,6 @@ class LaplacianPyramidFusion:
             # 生成 soft mask
             soft_mask = self._make_soft_mask(mask) * config.mix_weight
             
-            # 添加到列表
             images_to_blend.append(styled_image)
             masks_to_blend.append(soft_mask)
         

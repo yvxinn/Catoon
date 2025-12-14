@@ -46,27 +46,16 @@ diffusion:
   scheduler: "euler_a"
   dtype: "fp16"
 
-  # 【关键修改 1】降低 Guidance Scale (7.5 -> 5.5)
-  # 7.5 会强迫模型"必须"画出提示词里的东西（比如硬加云彩）。
-  # 降到 5.5-6.0，模型会更尊重原图，当提示词和原图冲突时，优先保留原图。
   guidance_scale: 5.5
 
   num_inference_steps: 28
 
-  # 【关键修改 2】进一步降低重绘幅度 (0.55 -> 0.45)
-  # 0.45 是"微调"和"重绘"的分界线。
-  # 这个数值下，AI 基本不敢改变物体轮廓，只敢改变上色风格。
   denoising_strength: 0.5
 
-  # 【关键修改 3】超强约束 ControlNet (1.1 -> 1.3)
-  # 1.3 的权重意味着：ControlNet 提取的线条就是"法律"，绝对不许改。
   controlnet_conditioning_scale: 0.7
 
   styles:
     - name: "Shinkai"
-      # 【关键修改 4】Prompt "清洗"
-      # 去掉了具体的物体词（如 clouds, urban fantasy, reflection）。
-      # 只保留"画质词"和"风格词"。不要描述画面内容，让 AI 自己看图！
       prompt: >
         (masterpiece, best quality, highres:1.2), ((makoto shinkai style)), kimi no na wa, 
         (vibrant saturated colors:1.1), (cinematic lighting), 
@@ -75,10 +64,9 @@ diffusion:
         (lowres, bad anatomy:1.3), text, error, blurry, (photorealistic, 3d, realistic texture:1.4), 
         horror, dark, monochrome, worst quality, low quality, jpeg artifacts, 
         (extra objects, mutation, deformed:1.2)
-      guidance_scale: 6.0 # 风格特定的引导也可以降低
+      guidance_scale: 6.0
 
     - name: "Hayao"
-      # 同样去掉了具体的物体描述
       prompt: >
         (masterpiece, best quality:1.2), ((studio ghibli style)), ((hayao miyazaki)), 
         (retro anime:1.1), (cel shaded:1.2), (watercolor style:1.3), 
@@ -91,7 +79,7 @@ diffusion:
 
 # 区域级风格化配置
 region_stylizer:
-  enable_parallel: true # 是否启用并行处理
+  enable_parallel: true
   max_workers: 4 # 最大并行线程数
 
 # 区域融合配置
@@ -118,7 +106,7 @@ lineart:
   line_width: 1
   overlay_edges: true # 是否在输出阶段叠加线稿
 
-# 深度增强配置（可选）
+# 深度增强配置
 depth:
   enabled: false
   model: "MiDaS_small"
