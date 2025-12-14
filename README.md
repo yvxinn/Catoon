@@ -66,31 +66,7 @@
 
 ## 🏗️ 系统架构
 
-```mermaid
-graph TD
-    Input[输入图像] --> Pre[A. 预处理 Context]
-    Pre --> Seg[B. 语义分析 & 人脸检测]
-    Pre --> Line[G. 线稿提取 Canny/XDoG]
-
-    Seg --> Router[D. 语义路由 Semantic Router]
-
-    subgraph StyleEngine [C. 多风格生成引擎]
-        Trad[Traditional]
-        GAN[AnimeGANv2]
-        Diff[Stable Diffusion]
-    end
-
-    Pre --> StyleEngine
-    Line --> Diff
-
-    StyleEngine --> Fusion[E. 区域融合 Pyramid Fusion]
-    Router --> Fusion
-    Seg --> Fusion
-
-    Fusion --> Harmo[F. 全局协调 Harmonization]
-    Harmo --> Detail[细节增强 & 线稿叠加]
-    Detail --> Output[最终输出]
-```
+![Architecture](assets/architecture.png)
 
 详细设计文档请参阅 [ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
